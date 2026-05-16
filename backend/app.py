@@ -313,6 +313,22 @@ def create_connection():
     if missing:
         return jsonify({"error": f"Missing fields: {missing}"}), 400
 
+    try:
+        test_conn = pymysql.connect(
+            host=data["host"],
+            port=int(data.get("port", 3306)),
+            user=data["username"],
+            password=data["password"],
+            database=data["db_name"],
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=5
+        )
+        with test_conn.cursor() as cursor:
+            cursor.execute("SELECT 1")
+        test_conn.close()
+    except pymysql.OperationalError as e:
+        return jsonify({"error": "Could not connect to database", "detail": str(e)}), 400
+
     password_enc = fernet.encrypt(data["password"].encode()).decode()
     connection_id = str(uuid.uuid4())
 
@@ -339,6 +355,16 @@ def create_connection():
         app_db.commit()
     finally:
         app_db.close()
+
+    try:
+        warm_conn = resolve_connection(connection_id)
+        rows = fetch_information_schema(warm_conn, data["db_name"])
+        if rows:
+            schema = compress_schema(rows)
+            set_cached_schema(connection_id, schema)
+        warm_conn.close()
+    except Exception as e:
+        print(f"WARN: schema pre-warm failed for {connection_id}: {e}")
 
     return jsonify({"connection_id": connection_id})
 
