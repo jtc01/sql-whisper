@@ -341,10 +341,6 @@ def test_connection(connection_id):
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 503
 
-
-if __name__ == "__main__":
-    app.run(debug=True, port=5001)
-
 # -------------------------------------------------------
 # Step 1a: Strip SQL comments and whitespace
 # Must run before any validation so comments can't be
@@ -745,3 +741,7 @@ def query():
     finally:
         if conn:
             conn.close()
+
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5001)
