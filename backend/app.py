@@ -110,22 +110,140 @@ def resolve_connection(connection_id: str) -> pymysql.Connection:
     return open_user_connection(creds)
 
 # -------------------------------------------------------
-# Example: how resolve_connection is used inside an endpoint
+# Step 2a: Query INFORMATION_SCHEMA on the user's database
+# -------------------------------------------------------
+INFORMATION_SCHEMA_QUERY = """
+    SELECT
+        c.TABLE_NAME,
+        c.COLUMN_NAME,
+        c.DATA_TYPE,
+        c.IS_NULLABLE,
+        c.COLUMN_KEY,
+        c.COLUMN_DEFAULT,
+        k.REFERENCED_TABLE_NAME,
+        k.REFERENCED_COLUMN_NAME
+    FROM INFORMATION_SCHEMA.COLUMNS c
+    LEFT JOIN INFORMATION_SCHEMA.KEY_COLUMN_USAGE k
+        ON  c.TABLE_NAME   = k.TABLE_NAME
+        AND c.COLUMN_NAME  = k.COLUMN_NAME
+        AND c.TABLE_SCHEMA = k.TABLE_SCHEMA
+        AND k.REFERENCED_TABLE_NAME IS NOT NULL
+    WHERE c.TABLE_SCHEMA = %s
+    ORDER BY c.TABLE_NAME, c.ORDINAL_POSITION;
+"""
+
+def fetch_information_schema(conn: pymysql.Connection, db_name: str) -> list[dict]:
+    """
+    Runs the INFORMATION_SCHEMA query against the user's database.
+    Returns a list of row dicts - one per column across all tables.
+    No user data rows are read at any point.
+    """
+    with conn.cursor() as cursor:
+        cursor.execute(INFORMATION_SCHEMA_QUERY, (db_name,))
+        return cursor.fetchall()
+    
+# -------------------------------------------------------
+# Step 2b: Compress raw rows into agent-friendly schema string
+# -------------------------------------------------------
+def compress_schema(rows: list[dict]) -> str:
+    """
+    Transforms raw INFORMATION_SCHEMA rows into a compact
+    one-line-per-table format that minimises context window usage.
+ 
+    Example output:
+      customers(id int [PK, NOT NULL], email varchar [NOT NULL], country varchar)
+      invoices(id int [PK], customer_id int [FK→customers.id], total decimal)
+    """
+    tables = {}
+ 
+    for row in rows:
+        table = row["TABLE_NAME"]
+        if table not in tables:
+            tables[table] = []
+ 
+        annotations = []
+ 
+        if row["COLUMN_KEY"] == "PRI":
+            annotations.append("PK")
+ 
+        if row["REFERENCED_TABLE_NAME"]:
+            annotations.append(
+                f"FK→{row['REFERENCED_TABLE_NAME']}.{row['REFERENCED_COLUMN_NAME']}"
+            )
+ 
+        if row["IS_NULLABLE"] == "NO":
+            annotations.append("NOT NULL")
+ 
+        if row["COLUMN_DEFAULT"] is not None:
+            annotations.append(f"DEFAULT {row['COLUMN_DEFAULT']}")
+ 
+        suffix = f" [{', '.join(annotations)}]" if annotations else ""
+        tables[table].append(f"{row['COLUMN_NAME']} {row['DATA_TYPE']}{suffix}")
+ 
+    lines = [
+        f"{table}({', '.join(cols)})"
+        for table, cols in tables.items()
+    ]
+    return "\n".join(lines)
+
+# -------------------------------------------------------
+# Step 2c: Cache layer (in-memory for hackathon)
+# Swap schema_cache for COS/Redis in production
+# -------------------------------------------------------
+import time
+ 
+schema_cache: dict = {}
+CACHE_TTL = 300  # seconds (5 minutes)
+ 
+def get_cached_schema(connection_id: str) -> str | None:
+    entry = schema_cache.get(connection_id)
+    if entry and (time.time() - entry["timestamp"]) < CACHE_TTL:
+        return entry["schema"]
+    return None
+ 
+def set_cached_schema(connection_id: str, schema: str) -> None:
+    schema_cache[connection_id] = {
+        "schema":    schema,
+        "timestamp": time.time()
+    }
+
+# -------------------------------------------------------
+# GET /schema  — full endpoint wiring Steps 1 + 2 together
 # -------------------------------------------------------
 @app.route("/schema", methods=["GET"])
 def get_schema():
     connection_id = request.headers.get("X-Connection-Id")
     if not connection_id:
         return jsonify({"error": "Missing X-Connection-Id header"}), 400
-
+ 
+    # Return cached schema if still fresh
+    cached = get_cached_schema(connection_id)
+    if cached:
+        return jsonify({"schema": cached, "cached": True})
+ 
+    # Step 1 — resolve connection
     try:
         conn = resolve_connection(connection_id)
     except ValueError as e:
         return jsonify({"error": str(e)}), 404
     except pymysql.OperationalError as e:
         return jsonify({"error": "Could not connect to database", "detail": str(e)}), 503
-
-    # conn is now a live pymysql connection to the user's DB
-    # ... proceed with INFORMATION_SCHEMA query in next step
-    conn.close()
-    return jsonify({"status": "connection resolved successfully"})
+ 
+    # Step 2 — introspect and compress
+    try:
+        row = fetch_creds_row(connection_id)       # re-fetch to get db_name
+        rows = fetch_information_schema(conn, row["db_name"])
+ 
+        if not rows:
+            return jsonify({"error": "No tables found in database"}), 200
+ 
+        schema = compress_schema(rows)
+        set_cached_schema(connection_id, schema)
+ 
+        return jsonify({"schema": schema, "cached": False})
+ 
+    except pymysql.Error as e:
+        return jsonify({"error": "Schema introspection failed", "detail": str(e)}), 500
+ 
+    finally:
+        conn.close()   # always release the connection
