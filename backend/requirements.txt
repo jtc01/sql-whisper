@@ -5,3 +5,5 @@ python-dotenv
 anthropic
 requests
 flask-cors
+tls-sig-api-v2
+tencentcloud-sdk-python

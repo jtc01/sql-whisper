@@ -933,5 +933,86 @@ def get_sample(table_name):
         if conn:  # ← now safe — None is falsy so close() is skipped
             conn.close()
 
+# -------------------------------------------------------
+# TRTC voice integration
+# -------------------------------------------------------
+import TLSSigAPIv2
+from tencentcloud.common import credential
+from tencentcloud.common.profile.client_profile import ClientProfile
+from tencentcloud.common.profile.http_profile import HttpProfile
+from tencentcloud.trtc.v20190722 import trtc_client, models as trtc_models
+
+
+TRTC_SDK_APP_ID = int(os.environ.get("TRTC_SDK_APP_ID", "0"))
+TRTC_SDK_SECRET_KEY = os.environ.get("TRTC_SDK_SECRET_KEY", "")
+TENCENT_SECRET_ID = os.environ.get("TENCENT_SECRET_ID", "")
+TENCENT_SECRET_KEY = os.environ.get("TENCENT_SECRET_KEY", "")
+TRTC_REGION = os.environ.get("TRTC_REGION", "ap-singapore")
+
+_usersig_api = TLSSigAPIv2.TLSSigAPIv2(TRTC_SDK_APP_ID, TRTC_SDK_SECRET_KEY)
+
+
+def _trtc_client():
+    cred = credential.Credential(TENCENT_SECRET_ID, TENCENT_SECRET_KEY)
+    http_profile = HttpProfile()
+    http_profile.endpoint = "trtc.tencentcloudapi.com"
+    client_profile = ClientProfile()
+    client_profile.httpProfile = http_profile
+    return trtc_client.TrtcClient(cred, TRTC_REGION, client_profile)
+
+
+@app.route("/trtc/usersig", methods=["POST"])
+def trtc_usersig():
+    data = request.get_json() or {}
+    user_id = data.get("user_id") or f"user_{uuid.uuid4().hex[:8]}"
+    expire_seconds = int(data.get("expire_seconds", 86400))
+    usersig = _usersig_api.gen_sig(user_id, expire_seconds)
+    return jsonify({
+        "user_id": user_id,
+        "sdk_app_id": TRTC_SDK_APP_ID,
+        "user_sig": usersig,
+        "expire_seconds": expire_seconds,
+    })
+
+
+@app.route("/trtc/start-transcription", methods=["POST"])
+def trtc_start_transcription():
+    data = request.get_json() or {}
+    room_id = data.get("room_id")
+    if not room_id:
+        return jsonify({"error": "Missing room_id"}), 400
+    try:
+        client = _trtc_client()
+        req = trtc_models.StartAITranscriptionRequest()
+        req.from_json_string(json.dumps({
+            "SdkAppId": TRTC_SDK_APP_ID,
+            "RoomId": str(room_id),
+            "RoomIdType": 0,
+            "TranscriptionParams": {
+                "UserId": f"ai_bot_{room_id}",
+                "UserSig": _usersig_api.gen_sig(f"ai_bot_{room_id}", 86400),
+            },
+        }))
+        resp = client.StartAITranscription(req)
+        return jsonify({"task_id": resp.TaskId})
+    except Exception as e:
+        return jsonify({"error": "Failed to start transcription", "detail": str(e)}), 500
+
+
+@app.route("/trtc/stop-transcription", methods=["POST"])
+def trtc_stop_transcription():
+    data = request.get_json() or {}
+    task_id = data.get("task_id")
+    if not task_id:
+        return jsonify({"error": "Missing task_id"}), 400
+    try:
+        client = _trtc_client()
+        req = trtc_models.StopAITranscriptionRequest()
+        req.from_json_string(json.dumps({"TaskId": task_id}))
+        client.StopAITranscription(req)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": "Failed to stop transcription", "detail": str(e)}), 500
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
