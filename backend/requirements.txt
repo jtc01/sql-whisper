@@ -2,3 +2,5 @@ flask
 pymysql
 cryptography
 python-dotenv
+anthropic
+requests

@@ -1,6 +1,8 @@
 import os
 import json
 import anthropic
+import requests
+
 
 # -------------------------------------------------------
 # Anthropic client
@@ -97,9 +99,8 @@ TOOLS = [
 # Flask endpoint, and returns the result as a string.
 # In production this calls your Flask API over HTTP.
 # -------------------------------------------------------
-import requests
 
-FLASK_BASE_URL = os.environ.get("FLASK_BASE_URL", "http://localhost:5000")
+FLASK_BASE_URL = os.environ.get("FLASK_BASE_URL", "http://localhost:5001")
 
 def execute_tool(tool_name: str, tool_input: dict, connection_id: str) -> str:
     """
