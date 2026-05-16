@@ -1194,6 +1194,45 @@ def ask():
     except Exception as e:
         print(f"ERROR in /ask: {e}")
         return jsonify({"error": "Failed to process question", "detail": str(e)}), 500
+    
+# -------------------------------------------------------
+# DELETE /connections/<connection_id>
+# Removes credentials from TDSQL and clears the schema cache.
+# Called by the frontend when the user disconnects.
+# -------------------------------------------------------
+@app.route("/connections/<connection_id>", methods=["DELETE"])
+def delete_connection(connection_id):
+    if not connection_id:
+        return jsonify({"error": "Missing connection_id"}), 400
+
+    # -------------------------------------------------------
+    # Step 1: Remove credentials from TDSQL
+    # This is the most important step — encrypted credentials
+    # must not persist after the user disconnects.
+    # -------------------------------------------------------
+    app_db = get_app_db()
+    try:
+        with app_db.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM user_connections WHERE id = %s",
+                (connection_id,)
+            )
+            deleted = cursor.rowcount > 0
+        app_db.commit()
+    finally:
+        app_db.close()
+
+    if not deleted:
+        return jsonify({"error": "Connection not found"}), 404
+
+    # -------------------------------------------------------
+    # Step 2: Evict the schema cache entry
+    # The cache is keyed by connection_id. Once credentials
+    # are gone the cache entry is stale and should not persist.
+    # -------------------------------------------------------
+    schema_cache.pop(connection_id, None)
+
+    return jsonify({"deleted": True}), 200
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
