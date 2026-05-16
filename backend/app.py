@@ -2,6 +2,8 @@ import os
 import pymysql
 from flask import Flask, request, jsonify
 from cryptography.fernet import Fernet
+from dotenv import load_dotenv
+load_dotenv()
 
 app = Flask(__name__)
 
@@ -20,6 +22,7 @@ fernet = Fernet(ENCRYPTION_KEY)
 def get_app_db():
     return pymysql.connect(
         host=os.environ.get("APP_DB_HOST"),
+        port=int(os.environ.get("APP_DB_PORT", 3306)),
         user=os.environ.get("APP_DB_USER"),
         password=os.environ.get("APP_DB_PASS"),
         database=os.environ.get("APP_DB_NAME"),
@@ -37,7 +40,7 @@ def fetch_creds_row(connection_id: str) -> dict | None:
     app_db = get_app_db()
     try:
         with app_db.cursor() as cursor:
-            cursor.exWecute(
+            cursor.execute(
                 """
                 SELECT id, host, port, db_name, username, password_enc
                 FROM user_connections
@@ -228,22 +231,111 @@ def get_schema():
         return jsonify({"error": str(e)}), 404
     except pymysql.OperationalError as e:
         return jsonify({"error": "Could not connect to database", "detail": str(e)}), 503
- 
-    # Step 2 — introspect and compress
+# Step 2 — introspect and compress
     try:
         row = fetch_creds_row(connection_id)       # re-fetch to get db_name
         rows = fetch_information_schema(conn, row["db_name"])
- 
+
         if not rows:
             return jsonify({"error": "No tables found in database"}), 200
- 
+
         schema = compress_schema(rows)
         set_cached_schema(connection_id, schema)
- 
+
         return jsonify({"schema": schema, "cached": False})
- 
+
     except pymysql.Error as e:
         return jsonify({"error": "Schema introspection failed", "detail": str(e)}), 500
- 
+
     finally:
         conn.close()   # always release the connection
+
+
+import uuid
+
+# -------------------------------------------------------
+# POST /connections — save a new user DB connection
+# Returns the connection_id to be used in X-Connection-Id header
+# -------------------------------------------------------
+@app.route("/connections", methods=["POST"])
+def create_connection():
+    data = request.get_json() or {}
+    required = ["name", "host", "db_name", "username", "password"]
+    missing = [k for k in required if not data.get(k)]
+    if missing:
+        return jsonify({"error": f"Missing fields: {missing}"}), 400
+
+    password_enc = fernet.encrypt(data["password"].encode()).decode()
+    connection_id = str(uuid.uuid4())
+
+    app_db = get_app_db()
+    try:
+        with app_db.cursor() as cursor:
+            cursor.execute(
+                """
+                INSERT INTO user_connections
+                  (id, name, host, port, db_name, username, password_enc, db_type)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                """,
+                (
+                    connection_id,
+                    data["name"],
+                    data["host"],
+                    data.get("port", 3306),
+                    data["db_name"],
+                    data["username"],
+                    password_enc,
+                    data.get("db_type", "mysql"),
+                ),
+            )
+        app_db.commit()
+    finally:
+        app_db.close()
+
+    return jsonify({"connection_id": connection_id})
+
+
+# -------------------------------------------------------
+# GET /connections — list saved connections (no passwords)
+# -------------------------------------------------------
+@app.route("/connections", methods=["GET"])
+def list_connections():
+    app_db = get_app_db()
+    try:
+        with app_db.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, name, host, port, db_name, db_type, created_at
+                FROM user_connections
+                ORDER BY created_at DESC
+                """
+            )
+            rows = cursor.fetchall()
+            for r in rows:
+                if r.get("created_at"):
+                    r["created_at"] = r["created_at"].isoformat()
+            return jsonify(rows)
+    finally:
+        app_db.close()
+
+
+# -------------------------------------------------------
+# POST /connections/<id>/test — verify a connection works
+# -------------------------------------------------------
+@app.route("/connections/<connection_id>/test", methods=["POST"])
+def test_connection(connection_id):
+    try:
+        conn = resolve_connection(connection_id)
+        with conn.cursor() as cursor:
+            cursor.execute("SELECT 1 AS ok")
+            cursor.fetchone()
+        conn.close()
+        return jsonify({"ok": True})
+    except ValueError as e:
+        return jsonify({"ok": False, "error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 503
+
+
+if __name__ == "__main__":
+    app.run(debug=True, port=5001)

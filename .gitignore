@@ -77,3 +77,7 @@ coverage.xml
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Secrets
+.env
+backend/.env
