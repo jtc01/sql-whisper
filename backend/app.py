@@ -117,6 +117,47 @@ def resolve_connection(connection_id: str) -> pymysql.Connection:
 
     return open_user_connection(creds)
 
+
+def save_query_history(
+        connection_id: str,
+        text: str,
+        data: list[dict],
+        stats: list[dict],
+) -> str | None:
+    """
+    Saves a query to history. Returns history_id or None on failure.
+    Best-effort — never raises; history failures must not break a working query.
+
+    Args:
+        connection_id: which user DB this query is against
+        text: the user's natural-language question
+        data: query result rows (frontend's "data" field)
+        stats: 3-item array of stat cards [{label, value, color}, ...]
+    """
+    try:
+        history_id = str(uuid.uuid4())
+        payload = json.dumps({"data": data, "stats": stats}, cls=MySQLEncoder)
+
+        app_db = get_app_db()
+        try:
+            with app_db.cursor() as cursor:
+                cursor.execute(
+                    """
+                    INSERT INTO query_history
+                        (id, connection_id, name, prompt, response_payload)
+                    VALUES (%s, %s, %s, %s, %s)
+                    """,
+                    (history_id, connection_id, None, text, payload),
+                )
+            app_db.commit()
+            return history_id
+        finally:
+            app_db.close()
+    except Exception as e:
+        print(f"WARN: failed to save history: {e}")
+        return None
+
+
 # -------------------------------------------------------
 # Step 2a: Query INFORMATION_SCHEMA on the user's database
 # -------------------------------------------------------
@@ -310,7 +351,7 @@ def list_connections():
         with app_db.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, name, host, port, db_name, db_type, created_at
+                SELECT id, name, host, port, db_name, db_type AS type, created_at
                 FROM user_connections
                 ORDER BY created_at DESC
                 """
@@ -319,6 +360,7 @@ def list_connections():
             for r in rows:
                 if r.get("created_at"):
                     r["created_at"] = r["created_at"].isoformat()
+                r["status"] = "online"
             return jsonify(rows)
     finally:
         app_db.close()
@@ -726,6 +768,8 @@ def query():
     if not raw_sql:
         return jsonify({"error": "Missing sql field"}), 400
 
+    conn = None
+
     try:
         conn = resolve_connection(connection_id)
         response = run_query_pipeline(conn, raw_sql)
@@ -742,6 +786,100 @@ def query():
         if conn:
             conn.close()
 
+
+# -------------------------------------------------------
+# GET /history?connection_id=...&limit=20
+# Returns array of history entries shaped for frontend rendering
+# -------------------------------------------------------
+@app.route("/history", methods=["GET"])
+def list_history():
+    connection_id = request.args.get("connection_id") or request.headers.get("X-Connection-Id")
+    if not connection_id:
+        return jsonify({"error": "Missing connection_id"}), 400
+
+    limit = min(int(request.args.get("limit", 20)), 100)
+
+    app_db = get_app_db()
+    try:
+        with app_db.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, connection_id, prompt, response_payload, created_at
+                FROM query_history
+                WHERE connection_id = %s
+                ORDER BY created_at DESC
+                    LIMIT %s
+                """,
+                (connection_id, limit),
+            )
+            rows = cursor.fetchall()
+            result = []
+            for r in rows:
+                payload = r["response_payload"]
+                if isinstance(payload, str):
+                    payload = json.loads(payload)
+                result.append({
+                    "id": r["id"],
+                    "connection_id": r["connection_id"],
+                    "text": r["prompt"],
+                    "timestamp": r["created_at"].isoformat() if r["created_at"] else None,
+                    "data": payload.get("data", []),
+                    "stats": payload.get("stats", []),
+                })
+            return jsonify(result)
+    finally:
+        app_db.close()
+
+
+# -------------------------------------------------------
+# GET /history/<id> — single entry, same shape as list items
+# -------------------------------------------------------
+@app.route("/history/<history_id>", methods=["GET"])
+def get_history_entry(history_id):
+    app_db = get_app_db()
+    try:
+        with app_db.cursor() as cursor:
+            cursor.execute(
+                """
+                SELECT id, connection_id, prompt, response_payload, created_at
+                FROM query_history
+                WHERE id = %s LIMIT 1
+                """,
+                (history_id,),
+            )
+            r = cursor.fetchone()
+            if not r:
+                return jsonify({"error": "Not found"}), 404
+
+            payload = r["response_payload"]
+            if isinstance(payload, str):
+                payload = json.loads(payload)
+
+            return jsonify({
+                "id": r["id"],
+                "connection_id": r["connection_id"],
+                "text": r["prompt"],
+                "timestamp": r["created_at"].isoformat() if r["created_at"] else None,
+                "data": payload.get("data", []),
+                "stats": payload.get("stats", []),
+            })
+    finally:
+        app_db.close()
+
+
+# -------------------------------------------------------
+# DELETE /history/<id> — remove a single history entry
+# -------------------------------------------------------
+@app.route("/history/<history_id>", methods=["DELETE"])
+def delete_history_entry(history_id):
+    app_db = get_app_db()
+    try:
+        with app_db.cursor() as cursor:
+            cursor.execute("DELETE FROM query_history WHERE id = %s", (history_id,))
+            app_db.commit()
+            return jsonify({"deleted": cursor.rowcount > 0})
+    finally:
+        app_db.close()
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
