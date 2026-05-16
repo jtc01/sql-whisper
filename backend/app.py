@@ -1014,5 +1014,160 @@ def trtc_stop_transcription():
     except Exception as e:
         return jsonify({"error": "Failed to stop transcription", "detail": str(e)}), 500
 
+# -------------------------------------------------------
+# POST /ask — natural language to query results
+# Wraps run_agent (agent.py), extracts SQL/rows from the
+# tool calls, generates stat cards via a follow-up Claude
+# call, saves to history, returns frontend-shaped response
+# -------------------------------------------------------
+from agent import run_agent, client as anthropic_client, MODEL as ANTHROPIC_MODEL
+
+
+def extract_sql_and_rows(messages: list) -> tuple[str | None, list[dict]]:
+    """
+    Walks the agent's message history to find the last run_query tool call
+    and its result. Returns (sql, rows) or (None, []) if not found.
+    """
+    last_sql = None
+    last_rows = []
+
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+
+        for block in content:
+            # Claude's tool_use block contains the SQL it asked to run
+            if hasattr(block, "type") and block.type == "tool_use" and block.name == "run_query":
+                last_sql = block.input.get("sql")
+
+            # The user-role tool_result block contains the rows
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                try:
+                    parsed = json.loads(block.get("content", "{}"))
+                    if "rows" in parsed:
+                        last_rows = parsed["rows"]
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+    return last_sql, last_rows
+
+
+STATS_PROMPT = """You are generating 3 stat cards summarising a SQL query result for a UI dashboard.
+
+User asked: {question}
+SQL that ran: {sql}
+First few rows: {rows_preview}
+Total row count: {row_count}
+
+Generate EXACTLY 3 stat cards as a JSON array. Each card has:
+  - "label": short noun phrase (1-4 words), uppercase or title case
+  - "value": short string (a number, percentage, status, or short phrase)
+  - "color": one of "text-emerald-500" (good/positive), "text-rose-500" (warning/notable),
+             "text-amber-500" (caution), or "text-foreground" (neutral)
+
+Pick semantic insights, not just row counts. Examples:
+- "TOP SPENDER" / "$221.55" / "text-emerald-500"
+- "QUERY RESULTS" / "5 rows" / "text-foreground"
+- "REVENUE TIER" / "Premium" / "text-amber-500"
+
+Respond with ONLY the JSON array, no preamble, no markdown fences."""
+
+
+def generate_stats(question: str, sql: str, rows: list[dict]) -> list[dict]:
+    """
+    Asks Claude to generate 3 stat cards. Returns a safe fallback on any failure
+    so /ask never breaks just because stats generation hiccupped.
+    """
+    fallback = [
+        {"label": "Rows returned", "value": str(len(rows)), "color": "text-foreground"},
+        {"label": "Status", "value": "Complete", "color": "text-emerald-500"},
+        {"label": "Source", "value": "SQL Whisper", "color": "text-foreground"},
+    ]
+
+    if not rows:
+        return fallback
+
+    try:
+        rows_preview = json.dumps(rows[:3], cls=MySQLEncoder)
+        prompt = STATS_PROMPT.format(
+            question=question,
+            sql=sql or "(unknown)",
+            rows_preview=rows_preview,
+            row_count=len(rows),
+        )
+
+        resp = anthropic_client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
+        # Strip code fences if Claude added them despite instructions
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        stats = json.loads(text.strip())
+
+        # Must be exactly 3 cards; pad or trim
+        if len(stats) >= 3:
+            return stats[:3]
+        return stats + fallback[len(stats):]
+    except Exception as e:
+        print(f"WARN: stats generation failed: {e}")
+        return fallback
+
+
+@app.route("/ask", methods=["POST"])
+def ask():
+    """
+    Natural-language question → SQL + results + stats.
+    Saves to history automatically.
+    """
+    connection_id = request.headers.get("X-Connection-Id")
+    body = request.get_json() or {}
+    question = (body.get("question") or "").strip()
+
+    if not connection_id:
+        return jsonify({"error": "Missing X-Connection-Id header"}), 400
+    if not question:
+        return jsonify({"error": "Missing question field"}), 400
+
+    try:
+        # 1. Run the agent (calls schema + query tools as needed)
+        final_text, messages = run_agent(
+            user_message=question,
+            connection_id=connection_id,
+            history=[],
+        )
+
+        # 2. Extract the SQL and rows from the agent's tool calls
+        sql, rows = extract_sql_and_rows(messages)
+
+        # 3. Generate stat cards
+        stats = generate_stats(question, sql, rows)
+
+        # 4. Save to history (best effort)
+        save_query_history(
+            connection_id=connection_id,
+            text=question,
+            data=rows,
+            stats=stats,
+        )
+
+        # 5. Return frontend-shaped response
+        return jsonify({
+            "text": question,
+            "answer": final_text,
+            "sql": sql,
+            "data": rows,
+            "stats": stats,
+        })
+    except Exception as e:
+        print(f"ERROR in /ask: {e}")
+        return jsonify({"error": "Failed to process question", "detail": str(e)}), 500
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
