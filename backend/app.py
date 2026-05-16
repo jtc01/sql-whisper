@@ -351,7 +351,7 @@ def list_connections():
         with app_db.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, name, host, port, db_name, db_type AS type, created_at
+                SELECT id, name, host, port, db_name AS `database`, db_type AS type, created_at                
                 FROM user_connections
                 ORDER BY created_at DESC
                 """
@@ -470,31 +470,6 @@ def apply_row_cap(sql: str) -> str:
         return sql  # user already specified a LIMIT - respect it
     return f"{sql.rstrip(';')} LIMIT {ROW_CAP + 1}"
 
-# -------------------------------------------------------
-# Step 2b: Custom JSON encoder for MySQL types
-# pymysql returns Decimal and datetime objects that the
-# default json.JSONEncoder cannot serialise
-# -------------------------------------------------------
-class MySQLEncoder(json.JSONEncoder):
-    """
-    Extends the default JSON encoder to handle types that
-    pymysql returns from MySQL but that are not natively
-    JSON-serialisable:
- 
-      Decimal   ->  float   (monetary / numeric columns)
-      datetime  ->  str     (ISO 8601 format: "2024-03-15T14:30:00")
-      date      ->  str     (ISO 8601 format: "2024-03-15")
- 
-    Usage:
-      json.dumps(rows, cls=MySQLEncoder)
-    """
-    def default(self, obj):
-        if isinstance(obj, Decimal):
-            return float(obj)
-        if isinstance(obj, (datetime, date)):
-            return obj.isoformat()
-        return super().default(obj)
-    
 # -------------------------------------------------------
 # Step 2b: Custom JSON encoder for MySQL types
 # pymysql returns Decimal and datetime objects that the
@@ -822,7 +797,7 @@ def list_history():
                     "id": r["id"],
                     "connection_id": r["connection_id"],
                     "text": r["prompt"],
-                    "timestamp": r["created_at"].isoformat() if r["created_at"] else None,
+                    "created_at": r["created_at"].isoformat() + "Z" if r["created_at"] else None,
                     "data": payload.get("data", []),
                     "stats": payload.get("stats", []),
                 })
