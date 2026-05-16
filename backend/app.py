@@ -1234,5 +1234,41 @@ def delete_connection(connection_id):
 
     return jsonify({"deleted": True}), 200
 
+@app.route("/tables", methods=["GET"])
+def list_tables():
+    """Returns the list of tables in the user's database for the sidebar."""
+    connection_id = request.headers.get("X-Connection-Id")
+    if not connection_id:
+        return jsonify({"error": "Missing X-Connection-Id header"}), 400
+    
+    conn = None
+    try:
+        conn = resolve_connection(connection_id)
+        row = fetch_creds_row(connection_id)
+        rows = fetch_information_schema(conn, row["db_name"])
+        
+        # Deduplicate table names (rows are per-column)
+        table_names = sorted(set(r["TABLE_NAME"] for r in rows))
+        
+        # Get row count for each table (optional — adds visual richness)
+        tables = []
+        with conn.cursor() as cursor:
+            for name in table_names:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) AS c FROM `{name}`")
+                    count = cursor.fetchone()["c"]
+                except Exception:
+                    count = None
+                tables.append({"name": name, "row_count": count})
+        
+        return jsonify(tables)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": "Failed to list tables", "detail": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
