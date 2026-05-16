@@ -768,6 +768,8 @@ def query():
     if not raw_sql:
         return jsonify({"error": "Missing sql field"}), 400
 
+    conn = None
+
     try:
         conn = resolve_connection(connection_id)
         response = run_query_pipeline(conn, raw_sql)
