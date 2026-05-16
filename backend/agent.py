@@ -19,17 +19,24 @@ You are a SQL analyst assistant. Your job is to answer the user's questions
 about their database by writing and executing SQL queries, then explaining
 the results clearly in plain language.
 
-You have access to two tools:
+You have access to three tools:
 
 1. get_schema  — call this FIRST at the start of every conversation to
                  understand the database structure before writing any SQL.
 
-2. run_query   — call this to execute a SELECT query and get results back.
+2. get_sample  — call this when you need to understand the actual format or
+                 values in a specific table before writing a query. For example,
+                 use it to check date formats, enum values, or string casing
+                 before filtering. Returns 5 sample rows.
+
+3. run_query   — call this to execute a SELECT query and get results back.
                  You will receive the rows, column names, and a flag
                  indicating whether the results were truncated at 500 rows.
 
 Rules you must always follow:
 - Always call get_schema before your first run_query in a conversation.
+- Use get_sample when you are unsure about data formats or values in a column
+  before writing a query that filters or groups by that column.
 - Only write SELECT statements. Never attempt INSERT, UPDATE, DELETE, or DROP.
 - If results are truncated (truncated: true), always tell the user that your
   answer is based on the first 500 rows and may not reflect the full dataset.
@@ -90,6 +97,32 @@ TOOLS = [
             },
             "required": ["sql"]
         }
+    },
+    {
+        "name": "get_sample",
+        "description": (
+            "Returns 5 sample rows from a single table in the user's database. "
+            "Use this when you need to inspect the actual values in a table before "
+            "writing a query — for example, to check date formats, see what values "
+            "an enum column contains, verify string casing (e.g. 'USA' vs 'United States'), "
+            "or understand how a foreign key column relates to another table. "
+            "Do not use this as a substitute for run_query when the user wants real results. "
+            "Only use it to inform how you write a subsequent query."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "table_name": {
+                    "type": "string",
+                    "description": (
+                        "The exact name of the table to sample. Must match a table "
+                        "name returned by get_schema. Only alphanumeric characters "
+                        "and underscores are permitted."
+                    )
+                }
+            },
+            "required": ["table_name"]
+        }
     }
 ]
 
@@ -135,7 +168,13 @@ def execute_tool(tool_name: str, tool_input: dict, connection_id: str) -> str:
                 json={"sql": tool_input["sql"]},
                 timeout=15        # slightly longer — query may take a moment
             )
-
+        
+        elif tool_name == "get_sample":
+            response = requests.get(
+                f"{FLASK_BASE_URL}/sample/{tool_input['table_name']}",
+                headers=headers,
+                timeout=10
+            )
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
 

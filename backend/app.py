@@ -11,6 +11,8 @@ import json
 import threading
 
 app = Flask(__name__)
+from flask_cors import CORS
+CORS(app)
 
 # -------------------------------------------------------
 # Encryption setup
@@ -311,6 +313,22 @@ def create_connection():
     if missing:
         return jsonify({"error": f"Missing fields: {missing}"}), 400
 
+    try:
+        test_conn = pymysql.connect(
+            host=data["host"],
+            port=int(data.get("port", 3306)),
+            user=data["username"],
+            password=data["password"],
+            database=data["db_name"],
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=5
+        )
+        with test_conn.cursor() as cursor:
+            cursor.execute("SELECT 1")
+        test_conn.close()
+    except pymysql.OperationalError as e:
+        return jsonify({"error": "Could not connect to database", "detail": str(e)}), 400
+
     password_enc = fernet.encrypt(data["password"].encode()).decode()
     connection_id = str(uuid.uuid4())
 
@@ -337,6 +355,16 @@ def create_connection():
         app_db.commit()
     finally:
         app_db.close()
+
+    try:
+        warm_conn = resolve_connection(connection_id)
+        rows = fetch_information_schema(warm_conn, data["db_name"])
+        if rows:
+            schema = compress_schema(rows)
+            set_cached_schema(connection_id, schema)
+        warm_conn.close()
+    except Exception as e:
+        print(f"WARN: schema pre-warm failed for {connection_id}: {e}")
 
     return jsonify({"connection_id": connection_id})
 
@@ -855,6 +883,392 @@ def delete_history_entry(history_id):
             return jsonify({"deleted": cursor.rowcount > 0})
     finally:
         app_db.close()
+
+def validate_table_name(table_name: str) -> None:
+    """
+    Rejects any table name that contains characters outside
+    a-z, A-Z, 0-9, and underscore. This prevents SQL injection
+    via the URL parameter.
+    """
+    if not re.match(r"^[a-zA-Z0-9_]+$", table_name):
+        raise ValueError(
+            f"Invalid table name: '{table_name}'. "
+            "Only alphanumeric characters and underscores are permitted."
+        )
+
+def validate_table_exists(connection_id: str, table_name: str) -> None:
+    """
+    Checks the cached schema for connection_id to confirm
+    table_name is a real table in the user's database.
+    Raises ValueError if the schema isn't cached yet or the
+    table isn't found.
+    """
+    schema = get_cached_schema(connection_id)
+    if schema is None:
+        raise ValueError(
+            "Schema not loaded. Call GET /schema before GET /sample."
+        )
+    # each line of the compressed schema starts with the table name
+    # followed by an opening parenthesis e.g. "invoices(id int [PK]...)"
+    table_names = [line.split("(")[0] for line in schema.strip().splitlines()]
+    if table_name not in table_names:
+        raise ValueError(
+            f"Table '{table_name}' not found in database."
+        )
+    
+SAMPLE_SIZE = 5
+
+def fetch_sample_rows(conn: pymysql.Connection, table_name: str) -> dict:
+    """
+    Executes SELECT * FROM {table_name} LIMIT {SAMPLE_SIZE}
+    and returns serialised rows with column names.
+    """
+    sql = f"SELECT * FROM `{table_name}` LIMIT {SAMPLE_SIZE}"
+    with conn.cursor() as cursor:
+        cursor.execute(sql)
+        raw_rows = cursor.fetchall()
+
+    columns = list(raw_rows[0].keys()) if raw_rows else []
+    serialised = json.loads(json.dumps(raw_rows, cls=MySQLEncoder))
+
+    return {
+        "table":     table_name,
+        "columns":   columns,
+        "rows":      serialised,
+        "row_count": len(serialised),
+    }
+
+@app.route("/sample/<table_name>", methods=["GET"])
+def get_sample(table_name):
+    connection_id = request.headers.get("X-Connection-Id")
+    if not connection_id:
+        return jsonify({"error": "Missing X-Connection-Id header"}), 400
+
+    conn = None  # ← ensures finally block is always safe
+    try:
+        validate_table_name(table_name)
+        validate_table_exists(connection_id, table_name)
+        conn = resolve_connection(connection_id)
+        result = fetch_sample_rows(conn, table_name)
+        return jsonify(result), 200
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    except pymysql.OperationalError as e:
+        return jsonify({"error": "Could not connect to database", "detail": str(e)}), 503
+    finally:
+        if conn:  # ← now safe — None is falsy so close() is skipped
+            conn.close()
+
+# -------------------------------------------------------
+# TRTC voice integration
+# -------------------------------------------------------
+import TLSSigAPIv2
+from tencentcloud.common import credential
+from tencentcloud.common.profile.client_profile import ClientProfile
+from tencentcloud.common.profile.http_profile import HttpProfile
+from tencentcloud.trtc.v20190722 import trtc_client, models as trtc_models
+
+
+TRTC_SDK_APP_ID = int(os.environ.get("TRTC_SDK_APP_ID", "0"))
+TRTC_SDK_SECRET_KEY = os.environ.get("TRTC_SDK_SECRET_KEY", "")
+TENCENT_SECRET_ID = os.environ.get("TENCENT_SECRET_ID", "")
+TENCENT_SECRET_KEY = os.environ.get("TENCENT_SECRET_KEY", "")
+TRTC_REGION = os.environ.get("TRTC_REGION", "ap-singapore")
+
+_usersig_api = TLSSigAPIv2.TLSSigAPIv2(TRTC_SDK_APP_ID, TRTC_SDK_SECRET_KEY)
+
+
+def _trtc_client():
+    cred = credential.Credential(TENCENT_SECRET_ID, TENCENT_SECRET_KEY)
+    http_profile = HttpProfile()
+    http_profile.endpoint = "trtc.tencentcloudapi.com"
+    client_profile = ClientProfile()
+    client_profile.httpProfile = http_profile
+    return trtc_client.TrtcClient(cred, TRTC_REGION, client_profile)
+
+
+@app.route("/trtc/usersig", methods=["POST"])
+def trtc_usersig():
+    data = request.get_json() or {}
+    user_id = data.get("user_id") or f"user_{uuid.uuid4().hex[:8]}"
+    expire_seconds = int(data.get("expire_seconds", 86400))
+    usersig = _usersig_api.gen_sig(user_id, expire_seconds)
+    return jsonify({
+        "user_id": user_id,
+        "sdk_app_id": TRTC_SDK_APP_ID,
+        "user_sig": usersig,
+        "expire_seconds": expire_seconds,
+    })
+
+
+@app.route("/trtc/start-transcription", methods=["POST"])
+def trtc_start_transcription():
+    data = request.get_json() or {}
+    room_id = data.get("room_id")
+    if not room_id:
+        return jsonify({"error": "Missing room_id"}), 400
+    try:
+        client = _trtc_client()
+        req = trtc_models.StartAITranscriptionRequest()
+        req.from_json_string(json.dumps({
+            "SdkAppId": TRTC_SDK_APP_ID,
+            "RoomId": str(room_id),
+            "RoomIdType": 0,
+            "TranscriptionParams": {
+                "UserId": f"ai_bot_{room_id}",
+                "UserSig": _usersig_api.gen_sig(f"ai_bot_{room_id}", 86400),
+            },
+        }))
+        resp = client.StartAITranscription(req)
+        return jsonify({"task_id": resp.TaskId})
+    except Exception as e:
+        return jsonify({"error": "Failed to start transcription", "detail": str(e)}), 500
+
+
+@app.route("/trtc/stop-transcription", methods=["POST"])
+def trtc_stop_transcription():
+    data = request.get_json() or {}
+    task_id = data.get("task_id")
+    if not task_id:
+        return jsonify({"error": "Missing task_id"}), 400
+    try:
+        client = _trtc_client()
+        req = trtc_models.StopAITranscriptionRequest()
+        req.from_json_string(json.dumps({"TaskId": task_id}))
+        client.StopAITranscription(req)
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"error": "Failed to stop transcription", "detail": str(e)}), 500
+
+# -------------------------------------------------------
+# POST /ask — natural language to query results
+# Wraps run_agent (agent.py), extracts SQL/rows from the
+# tool calls, generates stat cards via a follow-up Claude
+# call, saves to history, returns frontend-shaped response
+# -------------------------------------------------------
+from agent import run_agent, client as anthropic_client, MODEL as ANTHROPIC_MODEL
+
+
+def extract_sql_and_rows(messages: list) -> tuple[str | None, list[dict]]:
+    """
+    Walks the agent's message history to find the last run_query tool call
+    and its result. Returns (sql, rows) or (None, []) if not found.
+    """
+    last_sql = None
+    last_rows = []
+
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+
+        for block in content:
+            # Claude's tool_use block contains the SQL it asked to run
+            if hasattr(block, "type") and block.type == "tool_use" and block.name == "run_query":
+                last_sql = block.input.get("sql")
+
+            # The user-role tool_result block contains the rows
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                try:
+                    parsed = json.loads(block.get("content", "{}"))
+                    if "rows" in parsed:
+                        last_rows = parsed["rows"]
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+    return last_sql, last_rows
+
+
+STATS_PROMPT = """You are generating 3 stat cards summarising a SQL query result for a UI dashboard.
+
+User asked: {question}
+SQL that ran: {sql}
+First few rows: {rows_preview}
+Total row count: {row_count}
+
+Generate EXACTLY 3 stat cards as a JSON array. Each card has:
+  - "label": short noun phrase (1-4 words), uppercase or title case
+  - "value": short string (a number, percentage, status, or short phrase)
+  - "color": one of "text-emerald-500" (good/positive), "text-rose-500" (warning/notable),
+             "text-amber-500" (caution), or "text-foreground" (neutral)
+
+Pick semantic insights, not just row counts. Examples:
+- "TOP SPENDER" / "$221.55" / "text-emerald-500"
+- "QUERY RESULTS" / "5 rows" / "text-foreground"
+- "REVENUE TIER" / "Premium" / "text-amber-500"
+
+Respond with ONLY the JSON array, no preamble, no markdown fences."""
+
+
+def generate_stats(question: str, sql: str, rows: list[dict]) -> list[dict]:
+    """
+    Asks Claude to generate 3 stat cards. Returns a safe fallback on any failure
+    so /ask never breaks just because stats generation hiccupped.
+    """
+    fallback = [
+        {"label": "Rows returned", "value": str(len(rows)), "color": "text-foreground"},
+        {"label": "Status", "value": "Complete", "color": "text-emerald-500"},
+        {"label": "Source", "value": "SQL Whisper", "color": "text-foreground"},
+    ]
+
+    if not rows:
+        return fallback
+
+    try:
+        rows_preview = json.dumps(rows[:3], cls=MySQLEncoder)
+        prompt = STATS_PROMPT.format(
+            question=question,
+            sql=sql or "(unknown)",
+            rows_preview=rows_preview,
+            row_count=len(rows),
+        )
+
+        resp = anthropic_client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=500,
+            messages=[{"role": "user", "content": prompt}],
+        )
+
+        text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
+        # Strip code fences if Claude added them despite instructions
+        if text.startswith("```"):
+            text = text.split("```")[1]
+            if text.startswith("json"):
+                text = text[4:]
+        stats = json.loads(text.strip())
+
+        # Must be exactly 3 cards; pad or trim
+        if len(stats) >= 3:
+            return stats[:3]
+        return stats + fallback[len(stats):]
+    except Exception as e:
+        print(f"WARN: stats generation failed: {e}")
+        return fallback
+
+
+@app.route("/ask", methods=["POST"])
+def ask():
+    """
+    Natural-language question → SQL + results + stats.
+    Saves to history automatically.
+    """
+    connection_id = request.headers.get("X-Connection-Id")
+    body = request.get_json() or {}
+    question = (body.get("question") or "").strip()
+
+    if not connection_id:
+        return jsonify({"error": "Missing X-Connection-Id header"}), 400
+    if not question:
+        return jsonify({"error": "Missing question field"}), 400
+
+    try:
+        # 1. Run the agent (calls schema + query tools as needed)
+        final_text, messages = run_agent(
+            user_message=question,
+            connection_id=connection_id,
+            history=[],
+        )
+
+        # 2. Extract the SQL and rows from the agent's tool calls
+        sql, rows = extract_sql_and_rows(messages)
+
+        # 3. Generate stat cards
+        stats = generate_stats(question, sql, rows)
+
+        # 4. Save to history (best effort)
+        save_query_history(
+            connection_id=connection_id,
+            text=question,
+            data=rows,
+            stats=stats,
+        )
+
+        # 5. Return frontend-shaped response
+        return jsonify({
+            "text": question,
+            "answer": final_text,
+            "sql": sql,
+            "data": rows,
+            "stats": stats,
+        })
+    except Exception as e:
+        print(f"ERROR in /ask: {e}")
+        return jsonify({"error": "Failed to process question", "detail": str(e)}), 500
+    
+# -------------------------------------------------------
+# DELETE /connections/<connection_id>
+# Removes credentials from TDSQL and clears the schema cache.
+# Called by the frontend when the user disconnects.
+# -------------------------------------------------------
+@app.route("/connections/<connection_id>", methods=["DELETE"])
+def delete_connection(connection_id):
+    if not connection_id:
+        return jsonify({"error": "Missing connection_id"}), 400
+
+    # -------------------------------------------------------
+    # Step 1: Remove credentials from TDSQL
+    # This is the most important step — encrypted credentials
+    # must not persist after the user disconnects.
+    # -------------------------------------------------------
+    app_db = get_app_db()
+    try:
+        with app_db.cursor() as cursor:
+            cursor.execute(
+                "DELETE FROM user_connections WHERE id = %s",
+                (connection_id,)
+            )
+            deleted = cursor.rowcount > 0
+        app_db.commit()
+    finally:
+        app_db.close()
+
+    if not deleted:
+        return jsonify({"error": "Connection not found"}), 404
+
+    # -------------------------------------------------------
+    # Step 2: Evict the schema cache entry
+    # The cache is keyed by connection_id. Once credentials
+    # are gone the cache entry is stale and should not persist.
+    # -------------------------------------------------------
+    schema_cache.pop(connection_id, None)
+
+    return jsonify({"deleted": True}), 200
+
+@app.route("/tables", methods=["GET"])
+def list_tables():
+    """Returns the list of tables in the user's database for the sidebar."""
+    connection_id = request.headers.get("X-Connection-Id")
+    if not connection_id:
+        return jsonify({"error": "Missing X-Connection-Id header"}), 400
+    
+    conn = None
+    try:
+        conn = resolve_connection(connection_id)
+        row = fetch_creds_row(connection_id)
+        rows = fetch_information_schema(conn, row["db_name"])
+        
+        # Deduplicate table names (rows are per-column)
+        table_names = sorted(set(r["TABLE_NAME"] for r in rows))
+        
+        # Get row count for each table (optional — adds visual richness)
+        tables = []
+        with conn.cursor() as cursor:
+            for name in table_names:
+                try:
+                    cursor.execute(f"SELECT COUNT(*) AS c FROM `{name}`")
+                    count = cursor.fetchone()["c"]
+                except Exception:
+                    count = None
+                tables.append({"name": name, "row_count": count})
+        
+        return jsonify(tables)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 404
+    except Exception as e:
+        return jsonify({"error": "Failed to list tables", "detail": str(e)}), 500
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
