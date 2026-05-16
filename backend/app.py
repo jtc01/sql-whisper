@@ -11,6 +11,8 @@ import json
 import threading
 
 app = Flask(__name__)
+from flask_cors import CORS
+CORS(app)
 
 # -------------------------------------------------------
 # Encryption setup
