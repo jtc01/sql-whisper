@@ -1,4 +1,4 @@
-"use client";
+"use client"
 
 import * as React from "react";
 import { Database, Plus, Loader2, Link2, ShieldCheck, Globe } from "lucide-react";
@@ -19,6 +19,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type Connection } from "@/app/page";
+import { motion, AnimatePresence } from "framer-motion";
 
 const databaseSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
@@ -67,7 +68,8 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
     
     onAddDatabase?.({
       ...data,
-      type: "PostgreSQL", // Default for now
+      port: parseInt(data.port, 10),
+      type: "MySQL", // Default for now
     });
     
     setIsTesting(false);
@@ -110,24 +112,32 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
         )}
       </DialogTrigger>
       <DialogContent className="sm:max-w-[480px] bg-card border-border shadow-2xl p-0 overflow-hidden">
-        <DialogHeader className="p-6 pb-2">
-          <div className="flex items-center gap-3 mb-1">
-            <div className="p-2 rounded-lg bg-primary text-primary-foreground">
-              <Database className="w-5 h-5" />
-            </div>
-            <div>
-              <DialogTitle className="font-mono uppercase tracking-wider text-sm">Register Data Source</DialogTitle>
-              <DialogDescription className="text-[10px] font-mono opacity-70 uppercase tracking-tighter mt-0.5">
-                Establish a secure tunnel to your registry
-              </DialogDescription>
-            </div>
-          </div>
-        </DialogHeader>
+        <AnimatePresence>
+          {open && (
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              transition={{ type: "spring", stiffness: 300, damping: 25 }}
+            >
+              <DialogHeader className="p-6 pb-2">
+                <div className="flex items-center gap-3 mb-1">
+                  <div className="p-2 rounded-lg bg-primary text-primary-foreground">
+                    <Database className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <DialogTitle className="font-mono uppercase tracking-wider text-sm">Register Data Source</DialogTitle>
+                    <DialogDescription className="text-[10px] font-mono opacity-70 uppercase tracking-tighter mt-0.5">
+                      Establish a secure tunnel to your registry
+                    </DialogDescription>
+                  </div>
+                </div>
+              </DialogHeader>
 
-        <form onSubmit={handleSubmit(onSubmit)}>
-          <div className="px-6 py-4">
-            <Tabs defaultValue="connection" className="w-full">
-              <TabsList className="grid w-full grid-cols-2 bg-muted p-1 mb-5">
+              <form onSubmit={handleSubmit(onSubmit)}>
+                <div className="px-6 py-4 pt-0">
+                  <Tabs defaultValue="connection" className="w-full">
+                    <TabsList className="grid w-full grid-cols-2 bg-muted p-1 mb-5">
                 <TabsTrigger value="connection" className="font-mono text-[10px] uppercase py-1.5">Connection Settings</TabsTrigger>
                 <TabsTrigger value="auth" className="font-mono text-[10px] uppercase py-1.5">Security & Auth</TabsTrigger>
               </TabsList>
@@ -263,7 +273,10 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
             </DialogFooter>
           </div>
         </form>
-      </DialogContent>
+      </motion.div>
+    )}
+  </AnimatePresence>
+</DialogContent>
     </Dialog>
   );
 }

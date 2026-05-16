@@ -81,137 +81,133 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false }: VoiceCo
     };
   }, [startListening, stopListening]);
 
+  const spring = { type: "spring" as const, stiffness: 450, damping: 40, mass: 1 };
+
   return (
-    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-6 z-50 w-full max-w-xl px-4">
-      {/* 1. Status Layer - Fixed height to avoid shifts */}
+    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-xl px-4 z-50 flex flex-col items-center gap-6">
+      {/* 1. Boxed Status Telemetry */}
       <div className="h-10 flex items-center justify-center w-full">
         <AnimatePresence mode="wait">
-          {isProcessing ? (
+          {(isListening || isProcessing || mode === "voice") && (
             <motion.div 
-              key="processing"
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -5 }}
-              className="flex items-center gap-4 h-9 px-6 rounded-full border border-border bg-card/50 backdrop-blur-xl shadow-lg !transition-none"
+              key="status-box"
+              initial={{ opacity: 0, scale: 0.95, y: 5 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 5 }}
+              className="px-4 py-1.5 rounded-lg border border-border bg-card/50 backdrop-blur-xl shadow-lg flex items-center gap-3 min-w-[180px] justify-center"
             >
-              <Loader2 className="w-3.5 h-3.5 text-primary animate-spin" />
-              <span className="text-[10px] font-mono text-primary font-bold uppercase tracking-widest">Decrypting Registry</span>
+              <AnimatePresence mode="wait">
+                {isProcessing ? (
+                  <motion.div key="p" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 text-primary animate-spin" />
+                    <span className="text-[10px] font-mono text-primary font-bold uppercase tracking-wider">Processing</span>
+                  </motion.div>
+                ) : isListening ? (
+                  <motion.div key="l" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-1">
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-pulse shadow-[0_0_8px_rgba(244,63,94,0.5)]" />
+                    <div className="flex items-center gap-0.5 h-3 mx-0.5">
+                      {[...Array(4)].map((_, i) => (
+                        <motion.div
+                          key={i}
+                          animate={{ height: [4, 10, 4] }}
+                          transition={{ duration: 0.6, repeat: Infinity, delay: i * 0.1 }}
+                          className="w-0.5 bg-rose-500/50 rounded-full"
+                        />
+                      ))}
+                    </div>
+                    <span className="text-[10px] font-mono text-rose-500 font-bold uppercase tracking-wider">Uplink Active</span>
+                  </motion.div>
+                ) : (
+                  <motion.div key="s" initial={{ opacity: 0 }} animate={{ opacity: 0.6 }} exit={{ opacity: 0 }} className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-widest">Ready to Uplink</span>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </motion.div>
-          ) : isListening ? (
-            <motion.div 
-              key="listening"
-              initial={{ opacity: 0, y: 5 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -5 }}
-              className="flex items-center gap-2 h-9 px-6 rounded-full border border-border bg-card/50 backdrop-blur-xl shadow-lg !transition-none"
-            >
-              <div className="flex items-center gap-1 h-3.5">
-                {[...Array(8)].map((_, i) => (
-                  <motion.div
-                    key={i}
-                    animate={{ height: [4, 10, 6] }}
-                    transition={{ duration: 0.8, repeat: Infinity, delay: i * 0.1 }}
-                    className="w-1 bg-primary rounded-full"
-                  />
-                ))}
-                <span className="ml-3 text-[10px] font-mono text-primary font-bold uppercase tracking-widest">Uplink Active</span>
-              </div>
-            </motion.div>
-          ) : !isListening && !isProcessing && mode === "voice" ? (
-            <motion.div 
-              key="standby"
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              exit={{ opacity: 0, scale: 0.95 }}
-              className="px-5 py-1.5 rounded-full border border-border bg-card/20 backdrop-blur-md flex items-center gap-3 !transition-none"
-            >
-              <span className="text-[9px] font-mono text-muted-foreground uppercase tracking-widest">Hold Space to Uplink</span>
-              <kbd className="text-[8px] bg-accent px-1.5 py-0.5 rounded border border-border font-bold text-foreground">SPACE</kbd>
-            </motion.div>
-          ) : null}
+          )}
         </AnimatePresence>
       </div>
 
-      {/* 2. Unified Command Shell */}
-      <motion.div 
+      {/* 2. Atomic Command Surface */}
+      <motion.div
         layout
-        initial={false}
-        transition={{ type: "spring", stiffness: 350, damping: 30, mass: 1 }}
+        transition={spring}
         className={cn(
-          "relative flex items-center justify-center shadow-2xl border border-border !transition-none",
+          "relative flex items-center justify-center overflow-hidden !transition-none",
           mode === "text" 
-            ? "w-full h-16 rounded-2xl bg-card px-4" 
-            : "w-auto h-20 rounded-full bg-transparent border-transparent shadow-none gap-6"
+            ? "w-full h-16 rounded-2xl bg-card border border-border shadow-2xl" 
+            : "w-auto h-24 rounded-full bg-card/20 backdrop-blur-2xl shadow-[0_20px_50px_rgba(0,0,0,0.3)] px-2"
         )}
       >
-        <AnimatePresence mode="popLayout" initial={false}>
+        <AnimatePresence mode="wait" initial={false}>
           {mode === "voice" ? (
-            <React.Fragment key="voice-group">
-              {showKeyboard && !isListening && !isProcessing && (
-                <motion.button
-                  key="kb-btn"
-                  layout
-                  initial={{ opacity: 0, scale: 0.5, x: 20 }}
-                  animate={{ opacity: 1, scale: 1, x: 0 }}
-                  exit={{ opacity: 0, scale: 0.5, x: 20 }}
-                  onClick={() => setMode("text")}
-                  className="w-20 h-20 rounded-full border border-border bg-card/30 backdrop-blur-md flex items-center justify-center text-muted-foreground hover:text-foreground shadow-lg shrink-0 !transition-none"
-                >
-                  <Keyboard className="w-8 h-8" />
-                </motion.button>
-              )}
+            <motion.div 
+              key="v-ui"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.1 } }}
+              className="flex items-center gap-4 px-2"
+            >
+              <AnimatePresence mode="popLayout">
+                {showKeyboard && !isListening && !isProcessing && (
+                  <motion.button
+                    layout
+                    key="kb"
+                    initial={{ opacity: 0, scale: 0, x: 20 }}
+                    animate={{ opacity: 1, scale: 1, x: 0 }}
+                    exit={{ opacity: 0, scale: 0, x: 40 }}
+                    transition={spring}
+                    onClick={() => setMode("text")}
+                    className="w-20 h-20 rounded-full border border-border bg-card/50 flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0 !transition-none"
+                  >
+                    <Keyboard className="w-8 h-8" />
+                  </motion.button>
+                )}
+              </AnimatePresence>
 
               <motion.button
-                key="mic-btn"
                 layout
                 onMouseDown={() => startListening("mouse")}
                 onMouseUp={() => stopListening("mouse")}
                 onMouseLeave={() => stopListening("mouse")}
                 disabled={isProcessing}
+                transition={spring}
                 className={cn(
-                  "relative flex items-center justify-center w-20 h-20 rounded-full shadow-2xl shrink-0 !transition-none duration-300",
-                  isListening ? "bg-rose-600 shadow-rose-900/40" : "bg-primary hover:bg-primary/90 shadow-primary/10"
+                  "relative flex items-center justify-center w-20 h-20 rounded-full shrink-0 overflow-hidden !transition-none",
+                  isListening ? "bg-rose-600 shadow-inner" : "bg-primary"
                 )}
               >
-                <motion.div layout className="relative z-20">
+                <div className="relative z-20">
                   <AnimatePresence mode="wait">
                     {isListening ? (
-                      <motion.div key="sq" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ duration: 0.15 }}>
+                      <motion.div key="sq" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ duration: 0.1 }}>
                         <Square className="w-7 h-7 text-white fill-white" />
                       </motion.div>
                     ) : (
-                      <motion.div key="mic" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ duration: 0.15 }}>
+                      <motion.div key="mi" initial={{ scale: 0 }} animate={{ scale: 1 }} exit={{ scale: 0 }} transition={{ duration: 0.1 }}>
                         <Mic className="w-8 h-8 text-primary-foreground" />
                       </motion.div>
                     )}
                   </AnimatePresence>
-                </motion.div>
+                </div>
                 
-                <AnimatePresence>
-                  {isListening && (
-                    <motion.div
-                      key="pulse-rings"
-                      initial={{ opacity: 0 }}
-                      animate={{ opacity: 1 }}
-                      exit={{ opacity: 0 }}
-                      className="absolute inset-0 z-0 pointer-events-none"
-                    >
-                      <div className="absolute inset-0 rounded-full bg-rose-500 animate-mic-pulse opacity-40" />
-                      <div className="absolute inset-0 rounded-full bg-rose-400 animate-mic-pulse-delayed opacity-20" />
-                    </motion.div>
-                  )}
-                </AnimatePresence>
+                {isListening && (
+                  <div className="absolute inset-0 z-0">
+                    <div className="absolute inset-0 rounded-full bg-rose-500 animate-mic-pulse opacity-40" />
+                    <div className="absolute inset-0 rounded-full bg-rose-400 animate-mic-pulse-delayed opacity-20" />
+                  </div>
+                )}
               </motion.button>
-            </React.Fragment>
+            </motion.div>
           ) : (
             <motion.form 
-              key="text-form"
-              layout
+              key="t-ui"
               onSubmit={handleTextSubmit}
-              initial={{ opacity: 0, x: 20 }}
-              animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 20 }}
-              className="flex items-center w-full h-full gap-2 !transition-none"
+              initial={{ opacity: 0, x: 10 }}
+              animate={{ opacity: 1, x: 0, transition: { delay: 0.15 } }}
+              exit={{ opacity: 0, x: 10, transition: { duration: 0.1 } }}
+              className="flex-1 flex items-center h-full px-4 gap-4 !transition-none"
             >
               <input
                 autoFocus
@@ -219,14 +215,14 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false }: VoiceCo
                 value={textQuery}
                 onChange={(e) => setTextQuery(e.target.value)}
                 placeholder="MANUAL VECTOR ENTRY..."
-                className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none font-mono text-sm uppercase tracking-tight pl-4"
+                className="flex-1 bg-transparent text-foreground placeholder:text-muted-foreground outline-none font-mono text-sm uppercase tracking-tight"
               />
               <div className="flex items-center gap-2 shrink-0">
                 <Button 
                   type="button" 
                   variant="ghost" 
                   size="icon" 
-                  className="h-10 w-10 text-muted-foreground hover:text-foreground" 
+                  className="h-10 w-10 text-muted-foreground hover:text-foreground rounded-xl" 
                   onClick={() => setMode("voice")}
                 >
                   <X className="w-5 h-5" />
@@ -234,7 +230,7 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false }: VoiceCo
                 <Button 
                   type="submit" 
                   disabled={!textQuery.trim()} 
-                  className="h-10 w-10 bg-primary text-primary-foreground shadow-lg"
+                  className="h-10 w-10 bg-primary text-primary-foreground shadow-lg rounded-xl"
                 >
                   <Send className="w-4 h-4" />
                 </Button>

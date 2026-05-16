@@ -1,29 +1,32 @@
 "use client";
 
 import * as React from "react";
-import { ChevronLeft, ChevronRight, MessageSquare, History, Plus } from "lucide-react";
-import { motion } from "framer-motion";
-import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { Button } from "@/components/ui/button";
-import { ModeToggle } from "./mode-toggle";
-import { AddDatabaseDialog } from "./add-database-dialog";
-import { type Connection } from "@/app/page";
-import { Trash2, Database as DbIcon, Settings2, MoreVertical } from "lucide-react";
+import { Trash2, Database as DbIcon, Settings2, MoreVertical, History, MessageSquare, Plus, ChevronRight, ChevronLeft } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { motion } from "framer-motion";
+import { cn } from "@/lib/utils";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Button } from "@/components/ui/button";
+import { ModeToggle } from "./mode-toggle";
+import { AddDatabaseDialog } from "./add-database-dialog";
+import { type Connection, type QueryResult } from "@/app/page";
+
+interface ConnectionWithQueries extends Connection {
+  queries: QueryResult[];
+}
 
 interface SidebarProps {
-  connections: Connection[];
+  connections: ConnectionWithQueries[];
   activeConnectionId: string;
   activeQueryId: string | null;
   onSelectConnection: (id: string) => void;
   onSelectQuery: (id: string) => void;
-  onAddDatabase: (db: Omit<Connection, "id" | "status" | "queries">) => void;
+  onAddDatabase: (db: Omit<Connection, "id" | "status">) => void;
   onDeleteConnection: (id: string) => void;
   onNewQuery?: () => void;
 }
@@ -196,7 +199,9 @@ export function Sidebar({
                           <span className="text-[11px] font-mono block truncate leading-tight uppercase font-bold tracking-tight mb-0.5">
                             {query.text}
                           </span>
-                          <span className="text-[8px] font-mono opacity-50 uppercase tracking-widest">{query.timestamp}</span>
+                          <span className="text-[8px] font-mono opacity-50 uppercase tracking-widest">
+                            {new Date(query.created_at).toLocaleTimeString([], { hour12: false })}
+                          </span>
                         </div>
                       )}
                     </div>
