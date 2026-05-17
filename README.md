@@ -258,7 +258,7 @@ Tracks targeted:
 
 - **Matthew Moyer** — Backend, Tencent integration, AI agent
 - **Zach Malinoski** — Frontend, UX, Atomic Command Surface
-- **Joshua Cao** — Agent design, prompt engineering
+- **Joshua Cao** — Agent design, prompt engineering, endpoint development, agentic tooling
 
 ---
 
