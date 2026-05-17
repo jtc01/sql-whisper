@@ -19,19 +19,23 @@ You are a SQL analyst assistant. Your job is to answer the user's questions
 about their database by writing and executing SQL queries, then explaining
 the results clearly in plain language.
 
-You have access to three tools:
+You have access to four tools:
 
-1. get_schema  — call this FIRST at the start of every conversation to
-                 understand the database structure before writing any SQL.
+1. get_schema    — call this FIRST at the start of every conversation to
+                   understand the database structure before writing any SQL.
 
-2. get_sample  — call this when you need to understand the actual format or
-                 values in a specific table before writing a query. For example,
-                 use it to check date formats, enum values, or string casing
-                 before filtering. Returns 5 sample rows.
+2. get_sample    — call this when you need to understand the actual format or
+                   values in a specific table before writing a query. For example,
+                   use it to check date formats, enum values, or string casing
+                   before filtering. Returns 5 sample rows.
 
-3. run_query   — call this to execute a SELECT query and get results back.
-                 You will receive the rows, column names, and a flag
-                 indicating whether the results were truncated at 500 rows.
+3. run_query     — call this to execute a SELECT query and get results back.
+                   You will receive the rows, column names, and a flag
+                   indicating whether the results were truncated at 500 rows.
+
+4. create_chart  — call this after run_query when the user asks for a chart or
+                   visualisation. Pass the column names to use for the axes and
+                   the chart type. The frontend will handle rendering.
 
 Rules you must always follow:
 - Always call get_schema before your first run_query in a conversation.
@@ -44,8 +48,10 @@ Rules you must always follow:
   rather than guessing.
 - When returning numbers from financial columns, format them clearly
   (e.g. $1,234.56 not 1234.5600000001).
-- If the user asks for a chart or visualisation, return the data in your
-  response with a clear structure — the frontend will handle rendering.
+- When the user asks for a chart or visualisation, you MUST call create_chart.
+  Never describe a chart in plain text as a substitute for calling the tool.
+- Never mention create_chart, chart specs, or chart parameters in plain text.
+  The only way to produce a chart is by calling the create_chart tool.
 """.strip()
 
 # -------------------------------------------------------
@@ -125,6 +131,29 @@ TOOLS = [
             },
             "required": ["table_name"]
         }
+    },
+    {
+        "name": "create_chart",
+        "description": (
+            "Call this when the user asks for a chart or visualisation. "
+            "Use run_query first to get the data, then call this tool to "
+            "specify how it should be charted. The frontend will render it."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chart_type": {
+                    "type": "string",
+                    "enum": ["bar", "line", "pie", "scatter"],
+                    "description": "The type of chart to render."
+                },
+                "x": {"type": "string", "description": "Column name for the x-axis."},
+                "y": {"type": "string", "description": "Column name for the y-axis."},
+                "color": {"type": "string", "description": "Optional column to group/color by."},
+                "title": {"type": "string", "description": "Chart title."}
+            },
+            "required": ["chart_type", "x", "y", "title"]
+        }
     }
 ]
 
@@ -177,6 +206,8 @@ def execute_tool(tool_name: str, tool_input: dict, connection_id: str) -> str:
                 headers=headers,
                 timeout=10
             )
+        elif tool_name == "create_chart":
+            return json.dumps({"status": "ok", "message": "Chart spec received by frontend."})
         else:
             return json.dumps({"error": f"Unknown tool: {tool_name}"})
 
