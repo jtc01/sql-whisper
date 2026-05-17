@@ -66,6 +66,8 @@ Rules you must always follow:
   appealing: write descriptive titles, use the color column to add grouping where
   it makes the data clearer, and prefer grouped charts over plotting raw IDs or
   keys on an axis.
+- Pie charts should have at most 8 slices. If there are more categories, suggest 
+  a horizontal bar chart instead.
 """.strip()
 
 # -------------------------------------------------------
