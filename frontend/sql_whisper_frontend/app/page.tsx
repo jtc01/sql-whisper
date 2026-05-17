@@ -21,6 +21,7 @@ export interface QueryResult {
   name?: string;
   text: string;
   answer?: string; // AI response text
+  sql?: string; // Generated SQL query
   created_at: string; // ISO-8601
   data: Record<string, any>[];
   stats: { label: string; value: string; color?: string }[];
@@ -158,6 +159,7 @@ export default function Home() {
           ...q,
           text: result.text || q.text,
           answer: result.answer,
+          sql: result.sql ?? q.sql,
           data: result.data || q.data,
           stats: result.stats || q.stats,
           chartSpec: result.chartSpec ?? q.chartSpec,
@@ -201,6 +203,7 @@ export default function Home() {
           ...q,
           text: question,
           answer: response.answer,
+          sql: response.sql ?? q.sql,
           data: response.data || q.data,
           stats: response.stats || q.stats,
           chartSpec: response.chartSpec ?? q.chartSpec,
@@ -384,6 +387,7 @@ export default function Home() {
           queryStats={activeQuery?.stats}
           queryText={activeQuery?.text}
           queryAnswer={activeQuery?.answer}
+          querySql={activeQuery?.sql}
           queryMessages={activeQuery?.messages}
           chartSpec={activeQuery?.chartSpec}
           view={view}

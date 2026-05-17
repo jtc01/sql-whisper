@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Database, Terminal, ZapOff, Loader2, Send, MessageSquare } from "lucide-react";
+import { Search, Database, Terminal, ZapOff, Loader2, Send, MessageSquare, Code, ChevronDown, ChevronUp } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { type ConversationMessage } from "@/app/page";
@@ -26,6 +26,7 @@ export function DataStage({
   queryStats = [],
   queryText,
   queryAnswer,
+  querySql,
   queryMessages = [],
   chartSpec,
   view = "telemetry",
@@ -39,6 +40,7 @@ export function DataStage({
   queryStats?: { label: string; value: string; color?: string }[];
   queryText?: string;
   queryAnswer?: string;
+  querySql?: string;
   queryMessages?: ConversationMessage[];
   // chartSpec is present when the agent called create_chart for this query.
   // When undefined, no chart is rendered and only the table is shown.
@@ -54,6 +56,7 @@ export function DataStage({
   const [error, setError] = React.useState<string | null>(null);
   const [schemaLoaded, setSchemaLoaded] = React.useState<string | null>(null);
   const [followUpText, setFollowUpText] = React.useState<string>("");
+  const [showSql, setShowSql] = React.useState<boolean>(false);
 
   const handleFollowUpSubmit = React.useCallback(() => {
     if (!followUpText.trim() || !onFollowUp) return;
@@ -343,6 +346,46 @@ export function DataStage({
                   </Button>
                 </motion.div>
               )}
+
+              {/* SQL Query Display */}
+              {querySql && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.35 }}
+                  className="rounded-lg border border-border bg-muted/30 overflow-hidden"
+                >
+                  <button
+                    onClick={() => setShowSql(!showSql)}
+                    className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Code className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em]">Generated SQL</span>
+                    </div>
+                    {showSql ? (
+                      <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                    )}
+                  </button>
+                  <AnimatePresence>
+                    {showSql && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <pre className="px-4 py-3 text-xs font-mono text-foreground/80 bg-background/50 border-t border-border overflow-x-auto">
+                          {querySql}
+                        </pre>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              )}
             </motion.div>
           ) : hasData && queryAnswer ? (
             /* Answer-only view when there's a response but no data rows */
@@ -404,9 +447,49 @@ export function DataStage({
                   </Button>
                 </motion.div>
               )}
+
+              {/* SQL Query Display */}
+              {querySql && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.35 }}
+                  className="rounded-lg border border-border bg-muted/30 overflow-hidden"
+                >
+                  <button
+                    onClick={() => setShowSql(!showSql)}
+                    className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-muted/50 transition-colors"
+                  >
+                    <div className="flex items-center gap-2">
+                      <Code className="w-3.5 h-3.5 text-muted-foreground" />
+                      <span className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.15em]">Generated SQL</span>
+                    </div>
+                    {showSql ? (
+                      <ChevronUp className="w-3.5 h-3.5 text-muted-foreground" />
+                    ) : (
+                      <ChevronDown className="w-3.5 h-3.5 text-muted-foreground" />
+                    )}
+                  </button>
+                  <AnimatePresence>
+                    {showSql && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: "auto", opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        transition={{ duration: 0.2 }}
+                        className="overflow-hidden"
+                      >
+                        <pre className="px-4 py-3 text-xs font-mono text-foreground/80 bg-background/50 border-t border-border overflow-x-auto">
+                          {querySql}
+                        </pre>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </motion.div>
+              )}
             </motion.div>
           ) : (
-            <motion.div 
+            <motion.div
               key="empty-view"
               initial={{ opacity: 0, scale: 0.99 }}
               animate={{ opacity: 1, scale: 1 }}
