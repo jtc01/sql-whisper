@@ -137,39 +137,44 @@ TOOLS = [
         "description": (
             "Call this when the user asks for a chart or visualisation. "
             "Use run_query first to get the data, then call this tool to "
-            "specify how it should be charted. The frontend will render it."
+            "specify how it should be charted. The frontend will render it. "
+            "For pie charts, x is the column containing slice labels (categories) "
+            "and y is the column containing numeric slice values."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "chart_type": {
                     "type": "string",
-                    "enum": ["bar", "line", "scatter", "area", "pie", "histogram", "box"],
+                    "enum": ["bar", "line", "pie", "scatter"],
                     "description": "The type of chart to render."
                 },
                 "x": {
                     "type": "string",
-                    "description": "Column for the x-axis. Used by: bar, line, scatter, area, histogram, box."
+                    "description": (
+                        "Column for the x-axis (bar, line, scatter), "
+                        "or the column containing slice labels for pie charts "
+                        "(e.g. a category or name column)."
+                    )
                 },
                 "y": {
                     "type": "string",
-                    "description": "Column for the y-axis. Used by: bar, line, scatter, area, box."
-                },
-                "names": {
-                    "type": "string",
-                    "description": "Column for slice labels. Used by: pie only."
-                },
-                "values": {
-                    "type": "string",
-                    "description": "Column for slice sizes. Used by: pie only."
+                    "description": (
+                        "Column for the y-axis (bar, line, scatter), "
+                        "or the column containing numeric slice sizes for pie charts "
+                        "(e.g. a revenue or count column)."
+                    )
                 },
                 "color": {
                     "type": "string",
-                    "description": "Optional column to group or color by. Used by: bar, line, scatter, area."
+                    "description": "Optional column to group/color by. Used by bar, line, and scatter only."
                 },
-                "title": {"type": "string", "description": "Chart title."}
+                "title": {
+                    "type": "string",
+                    "description": "Chart title."
+                }
             },
-            "required": ["chart_type", "title"]
+            "required": ["chart_type", "x", "y", "title"]
         }
     }
 ]
