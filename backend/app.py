@@ -1538,6 +1538,7 @@ def ask():
         save_conversation(connection_id, messages)
 
         sql, rows = extract_sql_and_rows(messages)
+        chart_spec = extract_chart_spec(messages)
         stats = generate_stats(question, sql, rows)
 
         # Save to history (best effort)
@@ -1554,6 +1555,7 @@ def ask():
             "sql": sql,
             "data": rows,
             "stats": stats,
+            "chartSpec": chart_spec,
             "cached": False,
             "is_followup": is_followup,
         }
