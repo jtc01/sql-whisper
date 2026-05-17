@@ -22,6 +22,14 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
   const [mode, setMode] = React.useState<"voice" | "text">("voice");
   const [textQuery, setTextQuery] = React.useState("");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
+  const inputRef = React.useRef<HTMLInputElement>(null);
+
+  const handleSuggestionClick = React.useCallback((suggestion: string) => {
+    setTextQuery(suggestion + " ");
+    setTimeout(() => {
+      inputRef.current?.focus();
+    }, 10);
+  }, []);
 
   const { status, error, startRecording, stopRecording } = useMicrophone({
     activeConnectionId,
@@ -38,6 +46,7 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
 
   const handleQuery = React.useCallback(async (question: string) => {
     if (!activeConnectionId || !question.trim()) return;
+    onQueryStart?.();
     try {
       const result = await apiService.ask(activeConnectionId, question);
       onQueryComplete?.(result);
@@ -45,10 +54,11 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
       setMode("voice");
     } catch (error) {
       console.error("[Voice] Query Error:", error);
+      onQueryError?.();
       setErrorMessage("Query Failed - Backend Error");
       setTimeout(() => setErrorMessage(null), 3000);
     }
-  }, [activeConnectionId, onQueryComplete]);
+  }, [activeConnectionId, onQueryStart, onQueryComplete, onQueryError]);
 
   // Keyboard Spacebar integration
   React.useEffect(() => {
@@ -185,18 +195,24 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: 10, scale: 0.95 }}
                     transition={{ duration: 0.2 }}
-                    className="absolute bottom-full left-0 w-full mb-4 flex flex-wrap justify-center gap-2"
+                    className="absolute bottom-full left-0 w-full mb-4 flex flex-col gap-2"
                   >
-                    {["Make a chart of...", "How many...", "What is the first...", "Show me total...", "Find recent records"].map((suggestion, index) => (
+                    {[
+                      { label: "Make a chart of...", value: "Make a chart of" },
+                      { label: "How many...", value: "How many" },
+                      { label: "What is the first...", value: "What is the first" },
+                      { label: "Show me total...", value: "Show me total" },
+                      { label: "Find recent records", value: "Find recent records" }
+                    ].map((suggestion, index) => (
                       <motion.button
-                        key={suggestion}
+                        key={suggestion.label}
                         initial={{ opacity: 0, y: 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: index * 0.05 + 0.1 }}
-                        onClick={() => setTextQuery(suggestion)}
-                        className="whitespace-nowrap text-[10px] font-mono bg-card border border-border shadow-lg hover:bg-accent text-foreground px-3.5 py-2 rounded-full transition-colors active:scale-95"
+                        onClick={() => handleSuggestionClick(suggestion.value)}
+                        className="whitespace-nowrap text-left text-[11px] font-mono bg-card border border-border shadow-lg hover:bg-accent text-foreground px-4 py-2.5 rounded-xl transition-colors active:scale-95"
                       >
-                        {suggestion}
+                        {suggestion.label}
                       </motion.button>
                     ))}
                   </motion.div>
@@ -205,6 +221,7 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
 
               <form onSubmit={handleTextSubmit} className="w-full flex items-center gap-4">
                 <input
+                  ref={inputRef}
                   autoFocus type="text" value={textQuery} onChange={(e) => setTextQuery(e.target.value)}
                   placeholder="Query database..."
                   className="flex-1 bg-transparent outline-none font-mono text-sm uppercase"

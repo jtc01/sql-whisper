@@ -26,15 +26,43 @@ fernet = Fernet(ENCRYPTION_KEY)
 # Your app's own TDSQL connection (where credentials are stored)
 # This is YOUR database, not the user's database
 # -------------------------------------------------------
+import sqlite3
+
 def get_app_db():
-    return pymysql.connect(
-        host=os.environ.get("APP_DB_HOST"),
-        port=int(os.environ.get("APP_DB_PORT", 3306)),
-        user=os.environ.get("APP_DB_USER"),
-        password=os.environ.get("APP_DB_PASS"),
-        database=os.environ.get("APP_DB_NAME"),
-        cursorclass=pymysql.cursors.DictCursor
-    )
+    conn = sqlite3.connect('local_data.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def init_db():
+    conn = get_app_db()
+    with conn:
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS user_connections (
+              id           TEXT PRIMARY KEY,
+              name         TEXT NOT NULL,
+              host         TEXT NOT NULL,
+              port         INTEGER NOT NULL DEFAULT 3306,
+              db_name      TEXT NOT NULL,
+              username     TEXT NOT NULL,
+              password_enc TEXT NOT NULL,
+              db_type      TEXT NOT NULL DEFAULT 'mysql',
+              created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        ''')
+        conn.execute('''
+            CREATE TABLE IF NOT EXISTS query_history (
+              id               TEXT PRIMARY KEY,
+              connection_id    TEXT NOT NULL,
+              name             TEXT,
+              prompt           TEXT NOT NULL,
+              response_payload TEXT NOT NULL,
+              created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              FOREIGN KEY (connection_id) REFERENCES user_connections(id)
+            )
+        ''')
+    conn.close()
+
+init_db()
 
 # -------------------------------------------------------
 # Step 1a: Fetch the encrypted credentials row from TDSQL
@@ -46,17 +74,19 @@ def fetch_creds_row(connection_id: str) -> dict | None:
     """
     app_db = get_app_db()
     try:
-        with app_db.cursor() as cursor:
+        cursor = app_db.cursor()
+        if True:
             cursor.execute(
                 """
                 SELECT id, host, port, db_name, username, password_enc
                 FROM user_connections
-                WHERE id = %s
+                WHERE id = ?
                 LIMIT 1
                 """,
                 (connection_id,)
             )
-            return cursor.fetchone()  # None if not found
+            row = cursor.fetchone()
+            return dict(row) if row else None
     finally:
         app_db.close()
 
@@ -144,12 +174,13 @@ def save_query_history(
 
         app_db = get_app_db()
         try:
-            with app_db.cursor() as cursor:
+            cursor = app_db.cursor()
+            if True:
                 cursor.execute(
                     """
                     INSERT INTO query_history
                         (id, connection_id, name, prompt, response_payload)
-                    VALUES (%s, %s, %s, %s, %s)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
                     (history_id, connection_id, name, text, payload),
                 )
@@ -336,12 +367,13 @@ def create_connection():
 
     app_db = get_app_db()
     try:
-        with app_db.cursor() as cursor:
+        cursor = app_db.cursor()
+        if True:
             cursor.execute(
                 """
                 INSERT INTO user_connections
                   (id, name, host, port, db_name, username, password_enc, db_type)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     connection_id,
@@ -378,7 +410,8 @@ def create_connection():
 def list_connections():
     app_db = get_app_db()
     try:
-        with app_db.cursor() as cursor:
+        cursor = app_db.cursor()
+        if True:
             cursor.execute(
                 """
                 SELECT id, name, host, port, db_name AS `database`, db_type AS type, created_at                
@@ -386,10 +419,14 @@ def list_connections():
                 ORDER BY created_at DESC
                 """
             )
-            rows = cursor.fetchall()
+            rows = [dict(r) for r in cursor.fetchall()]
             for r in rows:
                 if r.get("created_at"):
-                    r["created_at"] = r["created_at"].isoformat()
+                    # Handle sqlite string timestamp
+                    if isinstance(r["created_at"], str):
+                        r["created_at"] = r["created_at"].replace(" ", "T")
+                    else:
+                        r["created_at"] = r["created_at"].isoformat()
                 r["status"] = "online"
             return jsonify(rows)
     finally:
@@ -812,29 +849,39 @@ def list_history():
 
     app_db = get_app_db()
     try:
-        with app_db.cursor() as cursor:
+        cursor = app_db.cursor()
+        if True:
             cursor.execute(
                 """
                 SELECT id, connection_id, name, prompt, response_payload, created_at
                 FROM query_history
-                WHERE connection_id = %s
+                WHERE connection_id = ?
                 ORDER BY created_at DESC
-                    LIMIT %s
+                    LIMIT ?
                 """,
                 (connection_id, limit),
             )
-            rows = cursor.fetchall()
+            rows = [dict(r) for r in cursor.fetchall()]
             result = []
             for r in rows:
                 payload = r["response_payload"]
                 if isinstance(payload, str):
                     payload = json.loads(payload)
+                
+                # Handle sqlite string timestamp
+                created_at_str = None
+                if r.get("created_at"):
+                    if isinstance(r["created_at"], str):
+                        created_at_str = r["created_at"].replace(" ", "T") + "Z"
+                    else:
+                        created_at_str = r["created_at"].isoformat() + "Z"
+
                 result.append({
                     "id": r["id"],
                     "connection_id": r["connection_id"],
                     "name": r.get("name") or r["prompt"],
                     "text": r["prompt"],
-                    "created_at": r["created_at"].isoformat() + "Z" if r["created_at"] else None,
+                    "created_at": created_at_str,
                     "data": payload.get("data", []),
                     "stats": payload.get("stats", []),
                 })
@@ -850,28 +897,38 @@ def list_history():
 def get_history_entry(history_id):
     app_db = get_app_db()
     try:
-        with app_db.cursor() as cursor:
+        cursor = app_db.cursor()
+        if True:
             cursor.execute(
                 """
                 SELECT id, connection_id, prompt, response_payload, created_at
                 FROM query_history
-                WHERE id = %s LIMIT 1
+                WHERE id = ? LIMIT 1
                 """,
                 (history_id,),
             )
             r = cursor.fetchone()
             if not r:
                 return jsonify({"error": "Not found"}), 404
+                
+            r = dict(r)
 
             payload = r["response_payload"]
             if isinstance(payload, str):
                 payload = json.loads(payload)
+                
+            created_at_str = None
+            if r.get("created_at"):
+                if isinstance(r["created_at"], str):
+                    created_at_str = r["created_at"].replace(" ", "T")
+                else:
+                    created_at_str = r["created_at"].isoformat()
 
             return jsonify({
                 "id": r["id"],
                 "connection_id": r["connection_id"],
                 "text": r["prompt"],
-                "timestamp": r["created_at"].isoformat() if r["created_at"] else None,
+                "timestamp": created_at_str,
                 "data": payload.get("data", []),
                 "stats": payload.get("stats", []),
             })
@@ -886,8 +943,9 @@ def get_history_entry(history_id):
 def delete_history_entry(history_id):
     app_db = get_app_db()
     try:
-        with app_db.cursor() as cursor:
-            cursor.execute("DELETE FROM query_history WHERE id = %s", (history_id,))
+        cursor = app_db.cursor()
+        if True:
+            cursor.execute("DELETE FROM query_history WHERE id = ?", (history_id,))
             app_db.commit()
             return jsonify({"deleted": cursor.rowcount > 0})
     finally:
@@ -1214,12 +1272,13 @@ def generate_summary(question: str) -> str:
     try:
         resp = anthropic_client.messages.create(
             model=ANTHROPIC_MODEL,
-            max_tokens=20,
-            messages=[{"role": "user", "content": f"Summarize this database query in 3-5 words: {question}. Respond ONLY with the summary."}],
+            max_tokens=15,
+            system="You are a strict title generator. Return ONLY a 3-5 word title summarizing the user's query. No quotes, no punctuation, no conversational preamble.",
+            messages=[{"role": "user", "content": question}],
         )
         return "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
     except Exception:
-        return question[:30] + "..." if len(question) > 30 else question
+        return question[:25] + "..." if len(question) > 25 else question
 
 
 @app.route("/ask", methods=["POST"])
@@ -1295,9 +1354,10 @@ def delete_connection(connection_id):
     # -------------------------------------------------------
     app_db = get_app_db()
     try:
-        with app_db.cursor() as cursor:
+        cursor = app_db.cursor()
+        if True:
             cursor.execute(
-                "DELETE FROM user_connections WHERE id = %s",
+                "DELETE FROM user_connections WHERE id = ?",
                 (connection_id,)
             )
             deleted = cursor.rowcount > 0

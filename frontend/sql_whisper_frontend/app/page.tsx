@@ -82,25 +82,28 @@ export default function Home() {
   React.useEffect(() => {
     if (!activeConnectionId) return;
 
-    // Load from localStorage instead of the backend API
-    const storedHistory = localStorage.getItem(`history_${activeConnectionId}`);
-    if (storedHistory) {
-      const parsed = JSON.parse(storedHistory);
-      setQueryHistory(prev => {
-        const filtered = prev.filter(q => q.connection_id !== activeConnectionId);
-        return [...filtered, ...parsed];
-      });
-    }
+    const loadHistory = async () => {
+      try {
+        const data = await apiService.listHistory(activeConnectionId);
+        setQueryHistory(prev => {
+          const filtered = prev.filter(q => q.connection_id !== activeConnectionId);
+          return [...filtered, ...data];
+        });
+        
+        if (data.length === 0) {
+          setActiveQueryId(null);
+          setHasData(false);
+          setIsQueryPending(true);
+          setView("telemetry");
+        }
+      } catch (error) {
+        console.error("Telemetry History Lost:", error);
+      }
+    };
+    loadHistory();
   }, [activeConnectionId]);
 
-  // Update localStorage whenever queryHistory changes
-  React.useEffect(() => {
-    if (activeConnectionId) {
-      const relevantHistory = queryHistory.filter(q => q.connection_id === activeConnectionId);
-      localStorage.setItem(`history_${activeConnectionId}`, JSON.stringify(relevantHistory));
-    }
-  }, [queryHistory, activeConnectionId]);
-
+  // We no longer update localStorage
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
   const activeQuery = queryHistory.find((q) => q.id === activeQueryId);
 
@@ -202,22 +205,19 @@ export default function Home() {
   }, []);
 
   const handleDeleteQuery = React.useCallback(async (id: string) => {
-    // Delete from localStorage
-    setQueryHistory(prev => {
-      const updated = prev.filter(q => q.id !== id);
-      if (activeConnectionId) {
-        localStorage.setItem(`history_${activeConnectionId}`, JSON.stringify(updated.filter(q => q.connection_id === activeConnectionId)));
+    try {
+      await apiService.deleteHistory(id);
+      setQueryHistory((prev) => prev.filter((q) => q.id !== id));
+      if (activeQueryId === id) {
+        setActiveQueryId(null);
+        setHasData(false);
+        setIsQueryPending(true);
+        setView("telemetry");
       }
-      return updated;
-    });
-
-    if (activeQueryId === id) {
-      setActiveQueryId(null);
-      setHasData(false);
-      setIsQueryPending(true);
-      setView("telemetry");
+    } catch (error) {
+      console.error("Telemetry Deletion Failed:", error);
     }
-  }, [activeConnectionId, activeQueryId]);
+  }, [activeQueryId]);
 
   if (isLoading) {
     return (
