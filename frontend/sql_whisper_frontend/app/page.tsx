@@ -198,7 +198,7 @@ export default function Home() {
       await apiService.deleteConnection(id);
       setConnections((prev) => prev.filter((c) => c.id !== id));
       setQueryHistory((prev) => prev.filter((q) => q.connection_id !== id));
-      
+
       if (activeConnectionId === id) {
         const next = connections.find(c => c.id !== id);
         setActiveConnectionId(next?.id || "");
@@ -208,6 +208,35 @@ export default function Home() {
       console.error("Uplink Termination Failed:", error);
     }
   }, [activeConnectionId, connections]);
+
+  const handleUpdateConnection = React.useCallback(async (id: string, data: {
+    name?: string;
+    host?: string;
+    port?: number;
+    db_name?: string;
+    username?: string;
+    password?: string;
+    db_type?: string;
+  }) => {
+    try {
+      await apiService.updateConnection(id, data);
+      // Update local state with new values
+      setConnections((prev) => prev.map((c) => {
+        if (c.id !== id) return c;
+        return {
+          ...c,
+          name: data.name ?? c.name,
+          host: data.host ?? c.host,
+          port: data.port ?? c.port,
+          database: data.db_name ?? c.database,
+          type: data.db_type ?? c.type,
+        };
+      }));
+    } catch (error) {
+      console.error("Connection Update Failed:", error);
+      throw error;
+    }
+  }, []);
 
   const handleSelectConnection = React.useCallback((id: string) => {
     setActiveConnectionId(id);
@@ -276,16 +305,17 @@ export default function Home() {
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       {/* Collapsible Sidebar */}
-      <Sidebar 
+      <Sidebar
         connections={connectionsWithQueries}
         activeConnectionId={activeConnectionId}
         activeQueryId={activeQueryId}
         onSelectConnection={handleSelectConnection}
         onSelectQuery={handleSelectQuery}
         onAddDatabase={handleAddDatabase}
+        onUpdateConnection={handleUpdateConnection}
         onDeleteConnection={handleDeleteConnection}
         onDeleteQuery={handleDeleteQuery}
-        onNewQuery={handleNewQuery} 
+        onNewQuery={handleNewQuery}
       />
 
       {/* Main Content Area */}

@@ -1338,6 +1338,94 @@ def ask():
         return jsonify({"error": "Failed to process question", "detail": str(e)}), 500
     
 # -------------------------------------------------------
+# PUT /connections/<connection_id>
+# Updates an existing connection's properties.
+# -------------------------------------------------------
+@app.route("/connections/<connection_id>", methods=["PUT"])
+def update_connection(connection_id):
+    if not connection_id:
+        return jsonify({"error": "Missing connection_id"}), 400
+
+    data = request.get_json() or {}
+
+    # Check connection exists
+    existing = fetch_creds_row(connection_id)
+    if not existing:
+        return jsonify({"error": "Connection not found"}), 404
+
+    # Build update fields
+    updates = []
+    params = []
+
+    if "name" in data:
+        updates.append("name = ?")
+        params.append(data["name"])
+    if "host" in data:
+        updates.append("host = ?")
+        params.append(data["host"])
+    if "port" in data:
+        updates.append("port = ?")
+        params.append(int(data["port"]))
+    if "db_name" in data:
+        updates.append("db_name = ?")
+        params.append(data["db_name"])
+    if "username" in data:
+        updates.append("username = ?")
+        params.append(data["username"])
+    if "password" in data and data["password"]:
+        password_enc = fernet.encrypt(data["password"].encode()).decode()
+        updates.append("password_enc = ?")
+        params.append(password_enc)
+    if "db_type" in data:
+        updates.append("db_type = ?")
+        params.append(data["db_type"])
+
+    if not updates:
+        return jsonify({"error": "No fields to update"}), 400
+
+    # Test new connection settings if credentials changed
+    test_host = data.get("host", existing["host"])
+    test_port = int(data.get("port", existing["port"]))
+    test_user = data.get("username", existing["username"])
+    test_pass = data.get("password") if data.get("password") else decrypt_password(existing["password_enc"])
+    test_db = data.get("db_name", existing["db_name"])
+
+    try:
+        test_conn = pymysql.connect(
+            host=test_host,
+            port=test_port,
+            user=test_user,
+            password=test_pass,
+            database=test_db,
+            cursorclass=pymysql.cursors.DictCursor,
+            connect_timeout=5
+        )
+        with test_conn.cursor() as cursor:
+            cursor.execute("SELECT 1")
+        test_conn.close()
+    except pymysql.OperationalError as e:
+        return jsonify({"error": "Could not connect with new settings", "detail": str(e)}), 400
+
+    # Update in database
+    params.append(connection_id)
+    app_db = get_app_db()
+    try:
+        cursor = app_db.cursor()
+        cursor.execute(
+            f"UPDATE user_connections SET {', '.join(updates)} WHERE id = ?",
+            tuple(params)
+        )
+        app_db.commit()
+    finally:
+        app_db.close()
+
+    # Clear schema cache since connection may point to different DB
+    schema_cache.pop(connection_id, None)
+
+    return jsonify({"updated": True}), 200
+
+
+# -------------------------------------------------------
 # DELETE /connections/<connection_id>
 # Removes credentials from TDSQL and clears the schema cache.
 # Called by the frontend when the user disconnects.

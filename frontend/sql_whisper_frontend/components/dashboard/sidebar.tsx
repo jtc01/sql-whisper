@@ -14,6 +14,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
 import { ModeToggle } from "./mode-toggle";
 import { AddDatabaseDialog } from "./add-database-dialog";
+import { EditDatabaseDialog } from "./edit-database-dialog";
 import { type Connection, type QueryResult } from "@/app/page";
 
 interface ConnectionWithQueries extends Connection {
@@ -35,23 +36,34 @@ interface SidebarProps {
     password?: string;
     db_type: string;
   }) => Promise<void>;
+  onUpdateConnection: (id: string, data: {
+    name?: string;
+    host?: string;
+    port?: number;
+    db_name?: string;
+    username?: string;
+    password?: string;
+    db_type?: string;
+  }) => Promise<void>;
   onDeleteConnection: (id: string) => void;
   onDeleteQuery: (id: string) => void;
   onNewQuery?: () => void;
 }
 
-export function Sidebar({ 
-  connections, 
-  activeConnectionId, 
+export function Sidebar({
+  connections,
+  activeConnectionId,
   activeQueryId,
-  onSelectConnection, 
+  onSelectConnection,
   onSelectQuery,
-  onAddDatabase, 
+  onAddDatabase,
+  onUpdateConnection,
   onDeleteConnection,
   onDeleteQuery,
-  onNewQuery 
+  onNewQuery
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
+  const [editingConnection, setEditingConnection] = React.useState<Connection | null>(null);
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
 
   return (
@@ -156,11 +168,14 @@ export function Sidebar({
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="bg-card/95 backdrop-blur-xl border-border">
-                          <DropdownMenuItem className="text-[10px] font-mono uppercase cursor-pointer">
+                          <DropdownMenuItem
+                            className="text-[10px] font-mono uppercase cursor-pointer"
+                            onClick={() => setEditingConnection(conn)}
+                          >
                             <Settings2 className="w-3 h-3 mr-2" />
                             Edit Config
                           </DropdownMenuItem>
-                          <DropdownMenuItem 
+                          <DropdownMenuItem
                             className="text-[10px] font-mono uppercase text-destructive cursor-pointer"
                             onClick={() => onDeleteConnection(conn.id)}
                           >
@@ -265,6 +280,16 @@ export function Sidebar({
           </div>
         )}
       </div>
+
+      {/* Edit Connection Dialog */}
+      {editingConnection && (
+        <EditDatabaseDialog
+          connection={editingConnection}
+          open={!!editingConnection}
+          onOpenChange={(open) => !open && setEditingConnection(null)}
+          onUpdateDatabase={onUpdateConnection}
+        />
+      )}
     </motion.div>
   );
 }
