@@ -11,29 +11,27 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Database, Terminal, ZapOff } from "lucide-react";
+import { Search, Database, Terminal, ZapOff, Loader2 } from "lucide-react";
 import { apiService, type TableInfo, type TableSample } from "@/lib/api-service";
 
-export function DataStage({
-  hasData = true,
+export function DataStage({ 
+  hasData = true, 
   activeConnectionName,
   activeConnectionId,
   queryData = [],
   queryStats = [],
   queryText,
-  queryAnswer,
-  querySql,
-  view = "telemetry"
-}: {
+  view = "telemetry",
+  isProcessing = false
+}: { 
   hasData?: boolean;
   activeConnectionName?: string;
   activeConnectionId?: string;
   queryData?: Record<string, any>[];
   queryStats?: { label: string; value: string; color?: string }[];
   queryText?: string;
-  queryAnswer?: string;
-  querySql?: string | null;
   view?: "telemetry" | "explorer";
+  isProcessing?: boolean;
 }) {
   const [dateTime, setDateTime] = React.useState<string>("");
   const [tables, setTables] = React.useState<TableInfo[]>([]);
@@ -97,6 +95,12 @@ export function DataStage({
 
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-background relative overflow-hidden">
+      {isProcessing && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-background/50 backdrop-blur-sm">
+          <Loader2 className="w-8 h-8 text-primary animate-spin" />
+        </div>
+      )}
+
       {/* Header */}
       <header className="p-6 border-b border-border flex items-center justify-between h-16 bg-background/50 backdrop-blur-sm shrink-0">
         <div>
@@ -198,7 +202,7 @@ export function DataStage({
               </div>
             </motion.div>
           ) : hasData && queryData.length > 0 ? (
-            <motion.div
+            <motion.div 
               key="data-view"
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -206,22 +210,6 @@ export function DataStage({
               transition={{ duration: 0.4, ease: "easeOut" }}
               className="space-y-6"
             >
-              {/* AI Answer */}
-              {queryAnswer && (
-                <div className="p-5 rounded-lg border border-primary/20 bg-primary/5">
-                  <div className="text-[10px] font-mono text-primary uppercase tracking-[0.2em] mb-2">AI Response</div>
-                  <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{queryAnswer}</p>
-                </div>
-              )}
-
-              {/* SQL Query */}
-              {querySql && (
-                <div className="p-4 rounded-lg border border-border bg-muted/30">
-                  <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.2em] mb-2">Generated SQL</div>
-                  <pre className="text-xs font-mono text-foreground overflow-x-auto">{querySql}</pre>
-                </div>
-              )}
-
               <div className="rounded-lg border border-border bg-card/10 overflow-hidden shadow-sm">
                 <Table>
                   <TableHeader className="bg-muted/30">
@@ -255,7 +243,7 @@ export function DataStage({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {queryStats.map((stat, i) => (
-                  <motion.div
+                  <motion.div 
                     key={`${stat.label}-${i}`}
                     initial={{ opacity: 0, scale: 0.98 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -267,40 +255,6 @@ export function DataStage({
                   </motion.div>
                 ))}
               </div>
-            </motion.div>
-          ) : hasData && queryAnswer ? (
-            /* Show answer-only view when there's a response but no data rows */
-            <motion.div
-              key="answer-view"
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              transition={{ duration: 0.4, ease: "easeOut" }}
-              className="space-y-6"
-            >
-              {/* AI Answer */}
-              <div className="p-6 rounded-lg border border-primary/20 bg-primary/5">
-                <div className="text-[10px] font-mono text-primary uppercase tracking-[0.2em] mb-3">AI Response</div>
-                <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{queryAnswer}</p>
-              </div>
-
-              {/* Stats if available */}
-              {queryStats.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                  {queryStats.map((stat, i) => (
-                    <motion.div
-                      key={`${stat.label}-${i}`}
-                      initial={{ opacity: 0, scale: 0.98 }}
-                      animate={{ opacity: 1, scale: 1 }}
-                      transition={{ delay: 0.2 + (i * 0.05) }}
-                      className="p-5 rounded-lg border border-border bg-card/10 hover:bg-card/20 transition-colors duration-200"
-                    >
-                      <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.2em]">{stat.label}</div>
-                      <div className={cn("text-2xl font-bold mt-1.5 tracking-tight", stat.color || "text-foreground")}>{stat.value}</div>
-                    </motion.div>
-                  ))}
-                </div>
-              )}
             </motion.div>
           ) : (
             <motion.div 

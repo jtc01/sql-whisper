@@ -12,9 +12,8 @@ import { Button } from "@/components/ui/button";
 export interface QueryResult {
   id: string;
   connection_id: string;
+  name?: string;
   text: string;
-  answer?: string; // AI response text
-  sql?: string | null; // Generated SQL query
   created_at: string; // ISO-8601
   data: Record<string, any>[];
   stats: { label: string; value: string; color?: string }[];
@@ -40,8 +39,9 @@ export default function Home() {
   
   const [isLoading, setIsLoading] = React.useState(true);
   const [isBackendDown, setIsBackendDown] = React.useState(false);
+  const [isProcessing, setIsProcessing] = React.useState(false);
   const [hasData, setHasData] = React.useState(false);
-  const [isQueryPending, setIsQueryPending] = React.useState(false);
+  const [isQueryPending, setIsQueryPending] = React.useState(true);
 
   // 1. Initial Load: Reachability + Connections
   React.useEffect(() => {
@@ -78,33 +78,24 @@ export default function Home() {
   React.useEffect(() => {
     if (!activeConnectionId) return;
 
-    const loadHistory = async () => {
-      try {
-        const data = await apiService.listHistory(activeConnectionId);
-        setQueryHistory(prev => {
-          const filtered = prev.filter(q => q.connection_id !== activeConnectionId);
-          return [...filtered, ...data];
-        });
-        
-        if (data.length > 0) {
-          // If we just selected a connection, we are in explorer view.
-          // Don't auto-select a query unless we explicitly want to.
-          // But for now, let's keep current behavior: if has history, show first query telemetry.
-          // Wait - user said "clicking on empty database with no queries, new query page opens automatically".
-          // This implies if it HAS queries, maybe it should show them?
-          // Let's stick to the directive: click connection -> show explorer.
-        } else {
-          setActiveQueryId(null);
-          setHasData(false);
-          setIsQueryPending(true);
-          setView("telemetry"); // Open new query page
-        }
-      } catch (error) {
-        console.error("Telemetry History Lost:", error);
-      }
-    };
-    loadHistory();
+    // Load from localStorage instead of the backend API
+    const storedHistory = localStorage.getItem(`history_${activeConnectionId}`);
+    if (storedHistory) {
+      const parsed = JSON.parse(storedHistory);
+      setQueryHistory(prev => {
+        const filtered = prev.filter(q => q.connection_id !== activeConnectionId);
+        return [...filtered, ...parsed];
+      });
+    }
   }, [activeConnectionId]);
+
+  // Update localStorage whenever queryHistory changes
+  React.useEffect(() => {
+    if (activeConnectionId) {
+      const relevantHistory = queryHistory.filter(q => q.connection_id === activeConnectionId);
+      localStorage.setItem(`history_${activeConnectionId}`, JSON.stringify(relevantHistory));
+    }
+  }, [queryHistory, activeConnectionId]);
 
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
   const activeQuery = queryHistory.find((q) => q.id === activeQueryId);
@@ -126,19 +117,21 @@ export default function Home() {
     setView("telemetry");
   }, []);
 
+  const handleQueryStart = React.useCallback(() => {
+      setIsProcessing(true);
+  }, []);
+
   const handleQuerySuccess = React.useCallback((result: QueryResult) => {
-    console.log("[Page] handleQuerySuccess called with:", result);
-    console.log("[Page] result.id:", result.id);
-    console.log("[Page] result.data length:", result.data?.length);
-    setQueryHistory(prev => {
-      console.log("[Page] Adding to queryHistory, prev length:", prev.length);
-      return [result, ...prev];
-    });
+    setIsProcessing(false);
+    setQueryHistory(prev => [result, ...prev]);
     setHasData(true);
-    setIsQueryPending(false);
+    setIsQueryPending(true);
     setActiveQueryId(result.id);
     setView("telemetry");
-    console.log("[Page] State updates dispatched");
+  }, []);
+
+  const handleQueryError = React.useCallback(() => {
+      setIsProcessing(false);
   }, []);
 
   const handleAddDatabase = React.useCallback(async (db: {
@@ -200,25 +193,27 @@ export default function Home() {
   const handleSelectQuery = React.useCallback((id: string) => {
     setActiveQueryId(id);
     setHasData(true);
-    setIsQueryPending(false);
+    setIsQueryPending(true);
     setView("telemetry");
   }, []);
 
   const handleDeleteQuery = React.useCallback(async (id: string) => {
-    try {
-      await apiService.deleteHistory(id);
-      setQueryHistory((prev) => prev.filter((q) => q.id !== id));
-
-      // If we deleted the active query, clear the view
-      if (activeQueryId === id) {
-        setActiveQueryId(null);
-        setHasData(false);
-        setView("explorer");
+    // Delete from localStorage
+    setQueryHistory(prev => {
+      const updated = prev.filter(q => q.id !== id);
+      if (activeConnectionId) {
+        localStorage.setItem(`history_${activeConnectionId}`, JSON.stringify(updated.filter(q => q.connection_id === activeConnectionId)));
       }
-    } catch (error) {
-      console.error("Failed to delete query:", error);
+      return updated;
+    });
+
+    if (activeQueryId === id) {
+      setActiveQueryId(null);
+      setHasData(false);
+      setIsQueryPending(true);
+      setView("telemetry");
     }
-  }, [activeQueryId]);
+  }, [activeConnectionId, activeQueryId]);
 
   if (isLoading) {
     return (
@@ -257,7 +252,7 @@ export default function Home() {
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       {/* Collapsible Sidebar */}
-      <Sidebar
+      <Sidebar 
         connections={connectionsWithQueries}
         activeConnectionId={activeConnectionId}
         activeQueryId={activeQueryId}
@@ -266,28 +261,29 @@ export default function Home() {
         onAddDatabase={handleAddDatabase}
         onDeleteConnection={handleDeleteConnection}
         onDeleteQuery={handleDeleteQuery}
-        onNewQuery={handleNewQuery}
+        onNewQuery={handleNewQuery} 
       />
 
       {/* Main Content Area */}
       <div className="relative flex-1 flex flex-col min-w-0">
-        <DataStage
-          hasData={hasData}
+        <DataStage 
+          hasData={hasData} 
           activeConnectionName={activeConnection?.name}
           activeConnectionId={activeConnectionId}
           queryData={activeQuery?.data}
           queryStats={activeQuery?.stats}
           queryText={activeQuery?.text}
-          queryAnswer={activeQuery?.answer}
-          querySql={activeQuery?.sql}
           view={view}
+          isProcessing={isProcessing}
         />
         
         {/* Floating Voice Controls */}
         <VoiceControls 
           activeConnectionId={activeConnectionId}
           showKeyboard={isQueryPending} 
-          onQueryComplete={handleQuerySuccess} 
+          onQueryStart={handleQueryStart}
+          onQueryComplete={handleQuerySuccess}
+          onQueryError={handleQueryError}
         />
       </div>
     </main>

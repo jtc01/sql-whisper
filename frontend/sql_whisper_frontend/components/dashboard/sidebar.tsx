@@ -36,20 +36,20 @@ interface SidebarProps {
     db_type: string;
   }) => Promise<void>;
   onDeleteConnection: (id: string) => void;
-  onDeleteQuery?: (id: string) => void;
+  onDeleteQuery: (id: string) => void;
   onNewQuery?: () => void;
 }
 
-export function Sidebar({
-  connections,
-  activeConnectionId,
+export function Sidebar({ 
+  connections, 
+  activeConnectionId, 
   activeQueryId,
-  onSelectConnection,
+  onSelectConnection, 
   onSelectQuery,
-  onAddDatabase,
+  onAddDatabase, 
   onDeleteConnection,
   onDeleteQuery,
-  onNewQuery
+  onNewQuery 
 }: SidebarProps) {
   const [isCollapsed, setIsCollapsed] = React.useState(false);
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
@@ -188,57 +188,44 @@ export function Sidebar({
               
               <div className="space-y-1">
                 {activeConnection.queries.map((query) => (
-                  <div key={query.id} className="relative group flex min-w-0 w-full">
+                  <div key={query.id} className="relative group/item flex min-w-0 w-full">
                     <button
                       onClick={() => onSelectQuery(query.id)}
                       className={cn(
-                        "w-full text-left p-2.5 rounded-lg transition-all border border-transparent min-w-0 overflow-hidden",
-                        activeQueryId === query.id
-                          ? "bg-accent text-foreground border-border"
+                        "w-full text-left p-2.5 rounded-lg transition-all group border border-transparent min-w-0 pr-10",
+                        activeQueryId === query.id 
+                          ? "bg-accent text-foreground border-border" 
                           : "hover:bg-accent/50 text-muted-foreground",
-                        isCollapsed && "justify-center px-0"
+                        isCollapsed && "justify-center px-0 pr-0"
                       )}
                     >
-                      <div className="flex items-start gap-3 min-w-0 w-full pr-8">
+                      <div className="flex items-start gap-3 min-w-0 w-full overflow-hidden">
                         <MessageSquare className={cn(
                           "w-4 h-4 mt-0.5 shrink-0 transition-colors duration-200",
                           activeQueryId === query.id ? "text-primary" : "group-hover:text-primary"
                         )} />
                         {!isCollapsed && (
                           <div className="flex-1 min-w-0 overflow-hidden">
-                            <span className="text-[11px] font-mono block truncate leading-tight uppercase font-bold tracking-tight mb-0.5 max-w-[200px]">
-                              {query.text}
+                            <span className="text-[11px] font-mono block truncate leading-tight uppercase font-bold tracking-tight mb-0.5 w-full">
+                              {query.name || query.text}
                             </span>
-                            <span className="text-[8px] font-mono opacity-50 uppercase tracking-widest block">
+                            <span className="text-[8px] font-mono opacity-50 uppercase tracking-widest truncate block w-full">
                               {new Date(query.created_at).toLocaleTimeString([], { hour12: false })}
                             </span>
                           </div>
-                        )}
-                      </div>
+                        )}                      </div>
                     </button>
 
                     {!isCollapsed && (
-                      <div className="absolute right-2 top-1/2 -translate-y-1/2">
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
-                              <MoreVertical className="w-3.5 h-3.5" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="bg-card/95 backdrop-blur-xl border-border">
-                            <DropdownMenuItem
-                              className="text-[10px] font-mono uppercase text-destructive cursor-pointer"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                onDeleteQuery?.(query.id);
-                              }}
-                            >
-                              <Trash2 className="w-3 h-3 mr-2" />
-                              Delete Entry
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      </div>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteQuery(query.id);
+                        }}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 h-7 w-7 flex items-center justify-center rounded-md opacity-0 group-hover/item:opacity-100 hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-all duration-200"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
                     )}
                   </div>
                 ))}

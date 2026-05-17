@@ -125,6 +125,7 @@ def save_query_history(
         text: str,
         data: list[dict],
         stats: list[dict],
+        name: str = None,
 ) -> str | None:
     """
     Saves a query to history. Returns history_id or None on failure.
@@ -135,6 +136,7 @@ def save_query_history(
         text: the user's natural-language question
         data: query result rows (frontend's "data" field)
         stats: 3-item array of stat cards [{label, value, color}, ...]
+        name: a brief summary of the question
     """
     try:
         history_id = str(uuid.uuid4())
@@ -149,7 +151,7 @@ def save_query_history(
                         (id, connection_id, name, prompt, response_payload)
                     VALUES (%s, %s, %s, %s, %s)
                     """,
-                    (history_id, connection_id, None, text, payload),
+                    (history_id, connection_id, name, text, payload),
                 )
             app_db.commit()
             return history_id
@@ -813,7 +815,7 @@ def list_history():
         with app_db.cursor() as cursor:
             cursor.execute(
                 """
-                SELECT id, connection_id, prompt, response_payload, created_at
+                SELECT id, connection_id, name, prompt, response_payload, created_at
                 FROM query_history
                 WHERE connection_id = %s
                 ORDER BY created_at DESC
@@ -830,6 +832,7 @@ def list_history():
                 result.append({
                     "id": r["id"],
                     "connection_id": r["connection_id"],
+                    "name": r.get("name") or r["prompt"],
                     "text": r["prompt"],
                     "created_at": r["created_at"].isoformat() + "Z" if r["created_at"] else None,
                     "data": payload.get("data", []),
@@ -1187,6 +1190,19 @@ def generate_stats(question: str, sql: str, rows: list[dict]) -> list[dict]:
         return fallback
 
 
+def generate_summary(question: str) -> str:
+    """Asks Claude to generate a 3-5 word summary of the user's question."""
+    try:
+        resp = anthropic_client.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=20,
+            messages=[{"role": "user", "content": f"Summarize this database query in 3-5 words: {question}. Respond ONLY with the summary."}],
+        )
+        return "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
+    except Exception:
+        return question[:30] + "..." if len(question) > 30 else question
+
+
 @app.route("/ask", methods=["POST"])
 def ask():
     """
@@ -1216,17 +1232,22 @@ def ask():
         # 3. Generate stat cards
         stats = generate_stats(question, sql, rows)
 
-        # 4. Save to history (best effort)
+        # 4. Generate brief summary
+        summary = generate_summary(question)
+
+        # 5. Save to history (best effort)
         save_query_history(
             connection_id=connection_id,
             text=question,
             data=rows,
             stats=stats,
+            name=summary,
         )
 
-        # 5. Return frontend-shaped response
+        # 6. Return frontend-shaped response
         return jsonify({
             "text": question,
+            "name": summary,
             "answer": final_text,
             "sql": sql,
             "data": rows,
