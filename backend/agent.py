@@ -52,6 +52,15 @@ Rules you must always follow:
   Never describe a chart in plain text as a substitute for calling the tool.
 - Never mention create_chart, chart specs, or chart parameters in plain text.
   The only way to produce a chart is by calling the create_chart tool.
+- Before calling create_chart, verify the data suits the chart type. A pie chart
+  requires a categorical column and a single numeric column. A line chart requires
+  an ordered x-axis (e.g. dates or sequential values). A scatter chart requires
+  two independent numeric columns. If the data does not fit, tell the user why
+  and suggest the most appropriate alternative instead.
+- Unless the user specifies otherwise, choose chart settings that are visually
+  appealing: write descriptive titles, use the color column to add grouping where
+  it makes the data clearer, and prefer grouped charts over plotting raw IDs or
+  keys on an axis.
 """.strip()
 
 # -------------------------------------------------------
