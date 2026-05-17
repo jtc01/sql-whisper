@@ -31,25 +31,25 @@ The agent introspects the database schema, generates safe SQL, runs it, and expl
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                      Frontend (React)                  │
-│           Atomic Command Surface architecture          │
+│                      Frontend (React)                   │
+│           Atomic Command Surface architectur e          │
 │   Connections │ Query Input │ Voice │ History │ Results │
 └──────────────────────────┬──────────────────────────────┘
                            │ HTTPS
 ┌──────────────────────────▼──────────────────────────────┐
-│                   Backend (Flask + Python)             │
-│                                                        │
+│                   Backend (Flask + Python)              │
+│                                                         │
 │  /ask  ──▶ Claude agent (tool-use loop)                 │
 │              ├─▶ get_schema  ──▶ INFORMATION_SCHEMA     │
 │              └─▶ run_query   ──▶ Safety pipeline:       │
-│                                   • Comment strip      │
-│                                   • SELECT-only        │
-│                                   • Single-statement   │
-│                                   • Row cap (500)      │
-│                                   • Dual-layer timeout  │
-│                                                        │
+│                                   • Comment stri p      │
+│                                   • SELECT-only         │
+│                                   • Single-statemen t   │
+│                                   • Row cap (500)       │
+│                                   • Dual-layer timeo t  │
+│                                                         │
 │  /trtc/*  ──▶ Tencent TRTC + StartAITranscription       │
-│  /connections, /history, /schema, /tables, /query      │
+│  /connections, /history, /schema, /tables, /query       │
 └──────────────────────────┬──────────────────────────────┘
                            │
        ┌───────────────────┴───────────────────┐
