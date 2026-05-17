@@ -68,10 +68,6 @@ Rules you must always follow:
   keys on an axis.
 - Pie charts should have at most 8 slices. If there are more categories, suggest 
   a horizontal bar chart instead.
-- Unless otherwise specified by the user, use the following color scheme for charts:
-    - Background: rgb(255, 255, 255)
-    - Bars/lines/points: rgb(27,59,25), rgb(79,110,78), rgb(169,204,160)
-    - Axes and gridlines: rgb(44, 44, 44)
 """.strip()
 
 # -------------------------------------------------------
