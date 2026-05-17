@@ -217,19 +217,57 @@ def get_conversation(connection_id: str) -> list:
         return []
 
 
+def _is_clean_user_message(msg: dict) -> bool:
+    """
+    Returns True if msg is a user message with plain text content (not tool_result blocks).
+    These are safe trim boundaries because they don't reference prior tool_use IDs.
+    """
+    if msg.get("role") != "user":
+        return False
+    content = msg.get("content")
+    # Plain string content is always safe
+    if isinstance(content, str):
+        return True
+    # List content: check if it contains any tool_result blocks
+    if isinstance(content, list):
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "tool_result":
+                return False
+        return True
+    return False
+
+
+def _trim_to_safe_boundary(messages: list, target_count: int) -> list:
+    """
+    Trims messages to approximately target_count, but ensures we start at a clean boundary.
+    A clean boundary is a user message with plain text (not tool_result blocks).
+    This prevents orphaned tool_result blocks from referencing tool_use IDs that were trimmed.
+    """
+    if len(messages) <= target_count:
+        return messages
+
+    # Start from the target trim point and search forward for a clean boundary
+    start_idx = len(messages) - target_count
+
+    # Search forward from start_idx to find a clean user message
+    for i in range(start_idx, len(messages)):
+        if _is_clean_user_message(messages[i]):
+            return messages[i:]
+
+    # If no clean boundary found, return fewer messages (safer than corrupted state)
+    # Try to find any clean boundary in the last half
+    for i in range(len(messages) // 2, len(messages)):
+        if _is_clean_user_message(messages[i]):
+            return messages[i:]
+
+    # Last resort: return empty (will start fresh conversation)
+    return []
+
+
 def save_conversation(connection_id: str, messages: list) -> None:
     if not redis_client:
         return
     try:
-        # DEBUG: log what we're working with
-        print(f"DEBUG save_conversation: {len(messages)} messages")
-        for i, msg in enumerate(messages):
-            content = msg.get("content")
-            print(f"  msg[{i}] role={msg.get('role')} content_type={type(content).__name__}")
-            if isinstance(content, list):
-                for j, block in enumerate(content):
-                    print(f"    block[{j}] type={type(block).__name__} has_model_dump={hasattr(block, 'model_dump')}")
-
         serializable = []
         for msg in messages:
             content = msg.get("content")
@@ -246,13 +284,16 @@ def save_conversation(connection_id: str, messages: list) -> None:
             else:
                 serializable.append({"role": msg["role"], "content": content})
 
-        trimmed = serializable[-(2 * MAX_HISTORY_TURNS):]
+        # Trim to safe boundary (prevents orphaned tool_result blocks)
+        target_count = 2 * MAX_HISTORY_TURNS
+        trimmed = _trim_to_safe_boundary(serializable, target_count)
+
         redis_client.setex(
             _conversation_key(connection_id),
             CONVERSATION_TTL,
             json.dumps(trimmed)
         )
-        print(f"DEBUG save_conversation: SUCCESS, saved {len(trimmed)} messages")
+        print(f"[conversation] saved {len(trimmed)} messages (trimmed from {len(serializable)})")
     except Exception as e:
         print(f"WARN: conversation save failed: {e}")
         import traceback
