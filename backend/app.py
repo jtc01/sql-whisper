@@ -1273,12 +1273,12 @@ def generate_summary(question: str) -> str:
         resp = anthropic_client.messages.create(
             model=ANTHROPIC_MODEL,
             max_tokens=15,
-            system="You are a strict title generator. Return ONLY a 3-5 word title summarizing the user's query. No quotes, no punctuation, no conversational preamble.",
+            system="Create a very short (2-4 word) descriptive title for this SQL query. Do not use quotes or introductory text. Return only the title.",
             messages=[{"role": "user", "content": question}],
         )
         return "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
     except Exception:
-        return question[:25] + "..." if len(question) > 25 else question
+        return question[:30] + "..." if len(question) > 30 else question
 
 
 @app.route("/ask", methods=["POST"])

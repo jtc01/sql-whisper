@@ -82,28 +82,36 @@ export default function Home() {
   React.useEffect(() => {
     if (!activeConnectionId) return;
 
-    const loadHistory = async () => {
-      try {
-        const data = await apiService.listHistory(activeConnectionId);
-        setQueryHistory(prev => {
-          const filtered = prev.filter(q => q.connection_id !== activeConnectionId);
-          return [...filtered, ...data];
-        });
-        
-        if (data.length === 0) {
-          setActiveQueryId(null);
-          setHasData(false);
-          setIsQueryPending(true);
-          setView("telemetry");
-        }
-      } catch (error) {
-        console.error("Telemetry History Lost:", error);
+    // Load from localStorage instead of the backend API
+    const storedHistory = localStorage.getItem(`history_${activeConnectionId}`);
+    if (storedHistory) {
+      const parsed = JSON.parse(storedHistory);
+      setQueryHistory(prev => {
+        const filtered = prev.filter(q => q.connection_id !== activeConnectionId);
+        return [...filtered, ...parsed];
+      });
+      if (parsed.length === 0) {
+        setActiveQueryId(null);
+        setHasData(false);
+        setIsQueryPending(true);
+        setView("telemetry");
       }
-    };
-    loadHistory();
+    } else {
+        setActiveQueryId(null);
+        setHasData(false);
+        setIsQueryPending(true);
+        setView("telemetry");
+    }
   }, [activeConnectionId]);
 
-  // We no longer update localStorage
+  // Update localStorage whenever queryHistory changes
+  React.useEffect(() => {
+    if (activeConnectionId && queryHistory.length > 0) {
+      const relevantHistory = queryHistory.filter(q => q.connection_id === activeConnectionId);
+      localStorage.setItem(`history_${activeConnectionId}`, JSON.stringify(relevantHistory));
+    }
+  }, [queryHistory, activeConnectionId]);
+
   const activeConnection = connections.find((c) => c.id === activeConnectionId);
   const activeQuery = queryHistory.find((q) => q.id === activeQueryId);
 
@@ -128,14 +136,23 @@ export default function Home() {
       setIsProcessing(true);
   }, []);
 
-  const handleQuerySuccess = React.useCallback((result: QueryResult) => {
+  const handleQuerySuccess = React.useCallback((result: Partial<QueryResult>) => {
     setIsProcessing(false);
-    setQueryHistory(prev => [result, ...prev]);
+    
+    // The backend now returns a Partial result without IDs, so we generate them locally for the frontend context store
+    const localResult: QueryResult = {
+      ...result,
+      id: result.id || Math.random().toString(36).substring(2, 15),
+      connection_id: result.connection_id || activeConnectionId,
+      created_at: result.created_at || new Date().toISOString(),
+    } as QueryResult;
+
+    setQueryHistory(prev => [localResult, ...prev]);
     setHasData(true);
     setIsQueryPending(true);
-    setActiveQueryId(result.id);
+    setActiveQueryId(localResult.id);
     setView("telemetry");
-  }, []);
+  }, [activeConnectionId]);
 
   const handleQueryError = React.useCallback(() => {
       setIsProcessing(false);
@@ -205,19 +222,22 @@ export default function Home() {
   }, []);
 
   const handleDeleteQuery = React.useCallback(async (id: string) => {
-    try {
-      await apiService.deleteHistory(id);
-      setQueryHistory((prev) => prev.filter((q) => q.id !== id));
-      if (activeQueryId === id) {
-        setActiveQueryId(null);
-        setHasData(false);
-        setIsQueryPending(true);
-        setView("telemetry");
+    // Delete from localStorage locally
+    setQueryHistory(prev => {
+      const updated = prev.filter(q => q.id !== id);
+      if (activeConnectionId) {
+        localStorage.setItem(`history_${activeConnectionId}`, JSON.stringify(updated.filter(q => q.connection_id === activeConnectionId)));
       }
-    } catch (error) {
-      console.error("Telemetry Deletion Failed:", error);
+      return updated;
+    });
+
+    if (activeQueryId === id) {
+      setActiveQueryId(null);
+      setHasData(false);
+      setIsQueryPending(true);
+      setView("telemetry");
     }
-  }, [activeQueryId]);
+  }, [activeConnectionId, activeQueryId]);
 
   if (isLoading) {
     return (

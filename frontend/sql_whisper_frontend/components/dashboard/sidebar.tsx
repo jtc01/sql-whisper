@@ -207,9 +207,10 @@ export function Sidebar({
                         {!isCollapsed && (
                           <div className="flex-1 min-w-0 overflow-hidden">
                             <span className="text-[11px] font-mono block truncate leading-tight uppercase font-bold tracking-tight mb-0.5 w-full">
-                              {(query.name && query.name !== query.text ? query.name : query.text).length > 28 
-                                ? (query.name && query.name !== query.text ? query.name : query.text).substring(0, 28) + "..." 
-                                : (query.name && query.name !== query.text ? query.name : query.text)}
+                              {(() => {
+                                const title = query.name || query.text;
+                                return title.length > 30 ? title.substring(0, 30) + "..." : title;
+                              })()}
                             </span>
                             <span className="text-[8px] font-mono opacity-50 uppercase tracking-widest truncate block w-full">
                               {new Date(query.created_at).toLocaleTimeString([], { hour12: false })}
