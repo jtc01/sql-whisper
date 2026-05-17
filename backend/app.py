@@ -1422,34 +1422,43 @@ def extract_chart_spec(messages: list) -> dict | None:
     return None
 
 
-STATS_PROMPT = """You are generating 3 stat cards summarising a SQL query result for a UI dashboard.
+STATS_PROMPT = """You are generating 3 stat cards summarising a SQL query result.
 
 User asked: {question}
 SQL that ran: {sql}
-First few rows: {rows_preview}
-Total row count: {row_count}
+ALL rows returned ({row_count} total): {rows_full}
 
 Generate EXACTLY 3 stat cards as a JSON array. Each card has:
-  - "label": short noun phrase (1-4 words), uppercase or title case
-  - "value": short string (a number, percentage, status, or short phrase)
-  - "color": one of "text-emerald-500" (good/positive), "text-rose-500" (warning/notable),
+  - "label": short noun phrase (1-4 words), title case
+  - "value": short string (a number, date, percentage, or short phrase)
+  - "color": one of "text-emerald-500" (positive), "text-rose-500" (warning),
              "text-amber-500" (caution), or "text-foreground" (neutral)
 
-Pick semantic insights, not just row counts. Examples:
-- "TOP SPENDER" / "$221.55" / "text-emerald-500"
-- "QUERY RESULTS" / "5 rows" / "text-foreground"
-- "REVENUE TIER" / "Premium" / "text-amber-500"
+CRITICAL RULES — your job depends on these:
+1. EVERY numeric or named value you produce MUST be derivable from the rows above.
+   Do not estimate. Do not approximate. Do not invent.
+2. If computing a sum: sum every row in the data, not just the first few.
+3. If naming a "peak" or "max" or "top": scan EVERY row to find the actual maximum.
+4. If you cannot compute a meaningful stat from the data, use a qualitative card
+   (e.g. "Status" / "Complete" / "text-foreground") rather than inventing numbers.
+5. Format money as $X,XXX.XX with comma thousands separators.
+6. Format dates as the same format they appear in the data.
 
-Respond with ONLY the JSON array, no preamble, no markdown fences."""
+Examples of GOOD stats:
+  {{"label": "Peak Month", "value": "2026-04", "color": "text-emerald-500"}}
+  {{"label": "Total Revenue", "value": "$163,366.16", "color": "text-emerald-500"}}
+  {{"label": "Growth Rate", "value": "38x", "color": "text-emerald-500"}}
+
+Respond with ONLY the JSON array. No preamble. No markdown fences.""".strip()
 
 
 def generate_stats(question: str, sql: str, rows: list[dict]) -> list[dict]:
     """
-    Asks Claude to generate 3 stat cards. Returns a safe fallback on any failure
-    so /ask never breaks just because stats generation hiccupped.
+    Asks Claude to generate 3 stat cards grounded in the actual data.
+    Returns a safe fallback on any failure.
     """
     fallback = [
-        {"label": "Rows returned", "value": str(len(rows)), "color": "text-foreground"},
+        {"label": "Rows Returned", "value": str(len(rows)), "color": "text-foreground"},
         {"label": "Status", "value": "Complete", "color": "text-emerald-500"},
         {"label": "Source", "value": "SQL Whisper", "color": "text-foreground"},
     ]
@@ -1458,11 +1467,16 @@ def generate_stats(question: str, sql: str, rows: list[dict]) -> list[dict]:
         return fallback
 
     try:
-        rows_preview = json.dumps(rows[:3], cls=MySQLEncoder)
+        # Pass all rows up to a reasonable limit so Claude can actually compute
+        # aggregates across the whole result, not just the first 3
+        MAX_ROWS_TO_PASS = 100
+        rows_to_send = rows[:MAX_ROWS_TO_PASS]
+        rows_json = json.dumps(rows_to_send, cls=MySQLEncoder)
+
         prompt = STATS_PROMPT.format(
             question=question,
             sql=sql or "(unknown)",
-            rows_preview=rows_preview,
+            rows_full=rows_json,
             row_count=len(rows),
         )
 
@@ -1473,14 +1487,12 @@ def generate_stats(question: str, sql: str, rows: list[dict]) -> list[dict]:
         )
 
         text = "".join(b.text for b in resp.content if hasattr(b, "text")).strip()
-        # Strip code fences if Claude added them despite instructions
         if text.startswith("```"):
             text = text.split("```")[1]
             if text.startswith("json"):
                 text = text[4:]
         stats = json.loads(text.strip())
 
-        # Must be exactly 3 cards; pad or trim
         if len(stats) >= 3:
             return stats[:3]
         return stats + fallback[len(stats):]
