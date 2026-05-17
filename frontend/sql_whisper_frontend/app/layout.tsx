@@ -3,6 +3,9 @@ import { Geist_Mono, Figtree } from "next/font/google"
 import "./globals.css"
 import { ThemeProvider } from "@/components/theme-provider"
 import { cn } from "@/lib/utils";
+import FaviconHandler from "@/components/FaviconHandler";
+
+import { Metadata } from "next"
 
 const figtree = Figtree({subsets:['latin'],variable:'--font-sans'})
 
@@ -17,14 +20,21 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={cn("antialiased", fontMono.variable, "font-sans", figtree.variable)}
-    >
-      <body className="h-screen w-screen overflow-hidden bg-background">
-        <ThemeProvider>{children}</ThemeProvider>
-      </body>
-    </html>
+      <html
+          lang="en"
+          suppressHydrationWarning
+          className={cn("antialiased", fontMono.variable, "font-sans", figtree.variable)}
+      >
+        <body className="h-screen w-screen overflow-hidden bg-background">
+            <ThemeProvider>
+                <FaviconHandler/>
+                {children}
+            </ThemeProvider>
+        </body>
+      </html>
   )
 }
+
+export const metadata: Metadata = {
+    title: "SQL Whisper",
+};
