@@ -9,21 +9,12 @@ import { pingBackend } from "@/lib/api-config";
 import { Loader2, ZapOff, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
-export interface StarshipTelemetry {
-  name: string;
-  class: string;
-  affiliation: string;
-  speed: string;
-  hyperdrive: string;
-  status: string;
-}
-
 export interface QueryResult {
   id: string;
   connection_id: string;
   text: string;
   created_at: string; // ISO-8601
-  data: StarshipTelemetry[];
+  data: Record<string, any>[];
   stats: { label: string; value: string; color?: string }[];
 }
 

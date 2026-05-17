@@ -80,7 +80,9 @@ TOOLS = [
             "the response will include truncated: true — you must tell the user "
             "when this happens. "
             "Only SELECT statements are permitted. Any other statement type will "
-            "be rejected. Do not include semicolons in the middle of the query."
+            "be rejected. Do not include semicolons in the middle of the query. "
+            "If the user asks for a specific number of results (e.g., 'the first actor', 'top 5 customers'), "
+            "you MUST include an appropriate LIMIT clause in your SQL."
         ),
         "input_schema": {
             "type": "object",
@@ -90,8 +92,8 @@ TOOLS = [
                     "description": (
                         "A valid SQL SELECT statement to execute against the database. "
                         "Must be a single SELECT statement. No INSERT, UPDATE, DELETE, "
-                        "DROP, or stacked statements. Do not include a LIMIT clause — "
-                        "one will be added automatically."
+                        "DROP, or stacked statements. Include a LIMIT clause if the user "
+                        "request implies one (e.g. 'first', 'top n')."
                     )
                 }
             },

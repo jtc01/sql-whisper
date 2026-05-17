@@ -100,16 +100,7 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
   };
 
   const handleTestConnection = async () => {
-    setIsTesting(true);
-    setTestResult(null);
-    setErrorMessage(null);
-    
-    // In a real scenario, we'd need to save first to get an ID, 
-    // or use a dedicated "dry-run" endpoint.
-    // For the demo, we'll simulate the validation success.
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    setIsTesting(false);
-    setTestResult("success");
+    // Deprecated: validation is handled natively during submission.
   };
 
   return (
@@ -293,17 +284,6 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
                   </div>
                 )}
               </div>
-              <Button 
-                type="button" 
-                variant="outline" 
-                size="sm" 
-                onClick={handleTestConnection}
-                disabled={isTesting}
-                className="h-7 px-3 text-[9px] font-mono uppercase bg-background shrink-0"
-              >
-                {isTesting ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <Link2 className="w-3 h-3 mr-2 text-primary" />}
-                Validate Vector
-              </Button>
             </div>
 
             <DialogFooter className="sm:justify-end gap-2">

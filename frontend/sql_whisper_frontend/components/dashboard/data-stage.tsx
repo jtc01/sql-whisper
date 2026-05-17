@@ -11,18 +11,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Database, Terminal } from "lucide-react";
-import { type StarshipTelemetry } from "@/app/page";
+import { Search, Database, Terminal, ZapOff } from "lucide-react";
 import { apiService, type TableInfo, type TableSample } from "@/lib/api-service";
-
-const getAffiliationColor = (affiliation: string) => {
-  switch (affiliation) {
-    case "Rebel Alliance": return "text-rose-500 bg-rose-500/10 border-rose-500/20";
-    case "Galactic Empire": return "text-emerald-500 bg-emerald-500/10 border-emerald-500/20";
-    case "Galactic Republic": return "text-amber-500 bg-amber-500/10 border-amber-500/20";
-    default: return "text-muted-foreground bg-accent border-border";
-  }
-};
 
 export function DataStage({ 
   hasData = true, 
@@ -36,7 +26,7 @@ export function DataStage({
   hasData?: boolean;
   activeConnectionName?: string;
   activeConnectionId?: string;
-  queryData?: StarshipTelemetry[];
+  queryData?: Record<string, any>[];
   queryStats?: { label: string; value: string; color?: string }[];
   queryText?: string;
   view?: "telemetry" | "explorer";
@@ -45,9 +35,11 @@ export function DataStage({
   const [tables, setTables] = React.useState<TableInfo[]>([]);
   const [activeTable, setActiveTable] = React.useState<string | null>(null);
   const [tableSample, setTableSample] = React.useState<TableSample | null>(null);
+  const [error, setError] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (view === "explorer" && activeConnectionId) {
+      setError(null);
       // Must load schema first (backend caches it for /sample calls)
       apiService.loadSchema(activeConnectionId)
         .then(() => apiService.listTables(activeConnectionId))
@@ -56,6 +48,7 @@ export function DataStage({
           if (data.length > 0) setActiveTable(data[0].name);
         }).catch((err) => {
           console.error("Failed to list tables:", err);
+          setError("Failed to initialize telemetry sweep.");
           setTables([]);
         });
     }
@@ -63,10 +56,13 @@ export function DataStage({
 
   React.useEffect(() => {
     if (view === "explorer" && activeConnectionId && activeTable) {
+      setTableSample(null);
+      setError(null);
       apiService.getTableSample(activeConnectionId, activeTable).then((data) => {
         setTableSample(data);
       }).catch((err) => {
         console.error("Failed to get table sample:", err);
+        setError(`Uplink Error: Table "${activeTable}" could not be decoded.`);
         setTableSample(null);
       });
     }
@@ -150,7 +146,15 @@ export function DataStage({
 
               {/* Data View */}
               <div className="flex-1 min-w-0 flex flex-col gap-6">
-                {tableSample ? (
+                {error ? (
+                  <div className="h-full flex flex-col items-center justify-center text-center p-12 border border-dashed border-destructive/30 rounded-lg bg-destructive/5">
+                    <ZapOff className="w-10 h-10 text-destructive opacity-80 mb-4" />
+                    <h3 className="text-lg font-bold text-foreground uppercase tracking-tight mb-2">Telemetry Interrupted</h3>
+                    <p className="max-w-md text-muted-foreground text-xs font-mono uppercase leading-relaxed opacity-70">
+                      {error}
+                    </p>
+                  </div>
+                ) : tableSample ? (
                   <>
                     <div className="rounded-lg border border-border bg-card/10 overflow-hidden shadow-sm">
                       <Table>
@@ -178,7 +182,7 @@ export function DataStage({
                     </div>
                     <div className="p-4 rounded-lg border border-dashed border-border bg-accent/5">
                       <p className="text-[10px] font-mono text-muted-foreground uppercase opacity-60">
-                        Displaying first {tableSample.rows.length} of {currentTableInfo?.row_count ?? "?"} records for local vector analysis.
+                        Displaying first {tableSample.rows.length} of {Math.max(tableSample.row_count || 0, currentTableInfo?.row_count || 0, tableSample.rows.length || 0)} records for local vector analysis.
                       </p>
                     </div>
                   </>
@@ -202,37 +206,27 @@ export function DataStage({
                 <Table>
                   <TableHeader className="bg-muted/30">
                     <TableRow className="border-border hover:bg-transparent">
-                      <TableHead className="text-muted-foreground font-medium py-4 text-[11px] uppercase tracking-wider px-6">Vessel</TableHead>
-                      <TableHead className="text-muted-foreground font-medium text-[11px] uppercase tracking-wider">Class</TableHead>
-                      <TableHead className="text-muted-foreground font-medium text-[11px] uppercase tracking-wider">Faction</TableHead>
-                      <TableHead className="text-muted-foreground font-medium text-[11px] uppercase tracking-wider">Atmospheric Speed</TableHead>
-                      <TableHead className="text-muted-foreground font-medium text-[11px] uppercase tracking-wider">Hyperdrive</TableHead>
-                      <TableHead className="text-muted-foreground font-medium text-[11px] uppercase tracking-wider text-right px-6">Status</TableHead>
+                      {Object.keys(queryData[0] || {}).map((col) => (
+                        <TableHead key={col} className="text-muted-foreground font-medium py-4 text-[11px] uppercase tracking-wider px-6">
+                          {col}
+                        </TableHead>
+                      ))}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {queryData.map((ship, idx) => (
+                    {queryData.map((row, idx) => (
                       <motion.tr
-                        key={`${ship.name}-${idx}`}
+                        key={idx}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         transition={{ delay: idx * 0.03 }}
                         className="border-border hover:bg-muted/40 transition-colors duration-200"
                       >
-                        <TableCell className="font-semibold text-foreground py-3.5 px-6">{ship.name}</TableCell>
-                        <TableCell className="text-muted-foreground text-xs uppercase tracking-tight">{ship.class}</TableCell>
-                        <TableCell>
-                          <span className={cn("inline-flex items-center px-2 py-0.5 rounded text-[10px] font-semibold border", getAffiliationColor(ship.affiliation))}>
-                            {ship.affiliation}
-                          </span>
-                        </TableCell>
-                        <TableCell className="font-mono text-foreground text-sm">{ship.speed} km/h</TableCell>
-                        <TableCell className="font-mono text-foreground text-sm opacity-80">
-                          {ship.hyperdrive === "N/A" ? "—" : `CLASS ${ship.hyperdrive}`}
-                        </TableCell>
-                        <TableCell className="text-right font-mono text-xs text-muted-foreground px-6">
-                          {ship.status}
-                        </TableCell>
+                        {Object.keys(row).map((col) => (
+                          <TableCell key={col} className="font-mono text-xs py-3.5 px-6">
+                            {String(row[col] ?? "")}
+                          </TableCell>
+                        ))}
                       </motion.tr>
                     ))}
                   </TableBody>

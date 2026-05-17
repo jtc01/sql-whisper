@@ -33,6 +33,7 @@ interface VoiceControlsProps {
 export function VoiceControls({ onQueryComplete, showKeyboard = false, activeConnectionId }: VoiceControlsProps) {
   const [isListening, setIsListening] = React.useState(false);
   const [isProcessing, setIsProcessing] = React.useState(false);
+  const [isVoiceUnavailable, setIsVoiceUnavailable] = React.useState(false);
   const [mode, setMode] = React.useState<"voice" | "text">("voice");
   const [textQuery, setTextQuery] = React.useState("");
   
@@ -51,6 +52,9 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false, activeCon
           console.log("[Uplink] TRTC SDK Package Online.");
         } catch (err) {
           console.error("[Uplink] TRTC SDK Payload Failure:", err);
+          if (err instanceof TypeError && err.message === "Load failed") {
+            console.error("[Uplink] Critical: Browser blocked the TRTC SDK payload or chunk was missing.");
+          }
         }
       };
       loadTRTC();
@@ -145,12 +149,15 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false, activeCon
             console.log("[Uplink] CUSTOM_MESSAGE raw:", decoded);
             const msg = JSON.parse(decoded);
             console.log("[Uplink] CUSTOM_MESSAGE parsed:", msg);
+
+            // Check for transcription results (Type 10000 is usually ASR)
             if (msg.type === 10000) {
-              console.log("[Uplink] ASR message - end:", msg.payload?.end, "text:", msg.payload?.text);
-              if (msg.payload?.end === true && msg.payload?.text) {
-                const transcript = msg.payload.text;
-                console.log(`[Uplink] Final Transcript: "${transcript}"`);
-                handleAskRef.current(transcript);
+              const { text, end } = msg.payload || {};
+              console.log(`[Uplink] ASR Status - End: ${end}, Text: "${text}"`);
+
+              if (end === true && text) {
+                console.log(`[Uplink] Final Transcript Confirmed. Handing off to LLM...`);
+                handleAskRef.current(text);
               }
             }
           } catch (e) {
@@ -180,12 +187,18 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false, activeCon
       await trtcRef.current.startLocalAudio();
 
       console.log("[Uplink] Starting Remote Transcription...");
-      const { task_id } = await apiService.startTranscription(roomId);
+      const { task_id } = await apiService.startTranscription(roomId, user_id);
       taskIdRef.current = task_id;
       console.log("[Uplink] Signal Stable.");
 
     } catch (error) {
       console.error("[Uplink] Hardware/Network Interference:", error);
+      if (error instanceof Error && error.message === "TRTC_UNAVAILABLE") {
+        console.error("[Uplink] TRTC Endpoints are 404ing on backend. Voice mode is disabled.");
+      }
+      if (typeof window !== "undefined" && /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent)) {
+        console.warn("[Uplink] Safari detected. If the signal is lost, check if 'Content Blockers' or 'Prevent Cross-Site Tracking' is nuking the RTC connection.");
+      }
       // Clean up on failure
       if (taskIdRef.current) {
         apiService.stopTranscription(taskIdRef.current).catch(() => {});
@@ -270,6 +283,11 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false, activeCon
                       ))}
                     </div>
                     <span className="text-[10px] font-mono text-rose-500 font-bold uppercase tracking-wider">Uplink Active</span>
+                  </motion.div>
+                ) : isVoiceUnavailable ? (
+                  <motion.div key="e" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="flex items-center gap-2">
+                    <div className="w-1.5 h-1.5 rounded-full bg-rose-600" />
+                    <span className="text-[10px] font-mono text-rose-600 font-bold uppercase tracking-wider">Signal Lost (404)</span>
                   </motion.div>
                 ) : (
                   <motion.div key="s" initial={{ opacity: 0 }} animate={{ opacity: 0.6 }} exit={{ opacity: 0 }} className="flex items-center gap-2">
