@@ -11,7 +11,10 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Search, Database, Terminal, ZapOff, Loader2 } from "lucide-react";
+import { Search, Database, Terminal, ZapOff, Loader2, Send, MessageSquare } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { type ConversationMessage } from "@/app/page";
 import { apiService, type TableInfo, type TableSample } from "@/lib/api-service";
 import { ChartPanel, type ChartSpec } from "@/components/dashboard/chart-panel";
 
@@ -23,9 +26,11 @@ export function DataStage({
   queryStats = [],
   queryText,
   queryAnswer,
+  queryMessages = [],
   chartSpec,
   view = "telemetry",
-  isProcessing = false
+  isProcessing = false,
+  onFollowUp,
 }: {
   hasData?: boolean;
   activeConnectionName?: string;
@@ -34,11 +39,13 @@ export function DataStage({
   queryStats?: { label: string; value: string; color?: string }[];
   queryText?: string;
   queryAnswer?: string;
+  queryMessages?: ConversationMessage[];
   // chartSpec is present when the agent called create_chart for this query.
   // When undefined, no chart is rendered and only the table is shown.
   chartSpec?: ChartSpec;
   view?: "telemetry" | "explorer";
   isProcessing?: boolean;
+  onFollowUp?: (question: string, history: ConversationMessage[]) => void;
 }) {
   const [dateTime, setDateTime] = React.useState<string>("");
   const [tables, setTables] = React.useState<TableInfo[]>([]);
@@ -46,6 +53,20 @@ export function DataStage({
   const [tableSample, setTableSample] = React.useState<TableSample | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [schemaLoaded, setSchemaLoaded] = React.useState<string | null>(null);
+  const [followUpText, setFollowUpText] = React.useState<string>("");
+
+  const handleFollowUpSubmit = React.useCallback(() => {
+    if (!followUpText.trim() || !onFollowUp) return;
+    onFollowUp(followUpText.trim(), queryMessages);
+    setFollowUpText("");
+  }, [followUpText, onFollowUp, queryMessages]);
+
+  const handleFollowUpKeyDown = React.useCallback((e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleFollowUpSubmit();
+    }
+  }, [handleFollowUpSubmit]);
 
   React.useEffect(() => {
     if (view === "explorer" && activeConnectionId) {
@@ -293,6 +314,35 @@ export function DataStage({
                   </motion.div>
                 ))}
               </div>
+
+              {/* Follow-up Input */}
+              {onFollowUp && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="flex items-center gap-3 p-4 rounded-lg border border-dashed border-primary/20 bg-primary/5"
+                >
+                  <MessageSquare className="w-4 h-4 text-primary shrink-0" />
+                  <Input
+                    value={followUpText}
+                    onChange={(e) => setFollowUpText(e.target.value)}
+                    onKeyDown={handleFollowUpKeyDown}
+                    placeholder="Ask a follow-up question..."
+                    disabled={isProcessing}
+                    className="flex-1 bg-transparent border-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50 text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleFollowUpSubmit}
+                    disabled={!followUpText.trim() || isProcessing}
+                    className="shrink-0 text-primary hover:text-primary hover:bg-primary/10"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </motion.div>
+              )}
             </motion.div>
           ) : hasData && queryAnswer ? (
             /* Answer-only view when there's a response but no data rows */
@@ -324,6 +374,35 @@ export function DataStage({
                     </motion.div>
                   ))}
                 </div>
+              )}
+
+              {/* Follow-up Input */}
+              {onFollowUp && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 }}
+                  className="flex items-center gap-3 p-4 rounded-lg border border-dashed border-primary/20 bg-primary/5"
+                >
+                  <MessageSquare className="w-4 h-4 text-primary shrink-0" />
+                  <Input
+                    value={followUpText}
+                    onChange={(e) => setFollowUpText(e.target.value)}
+                    onKeyDown={handleFollowUpKeyDown}
+                    placeholder="Ask a follow-up question..."
+                    disabled={isProcessing}
+                    className="flex-1 bg-transparent border-none focus-visible:ring-0 focus-visible:ring-offset-0 placeholder:text-muted-foreground/50 text-sm"
+                  />
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={handleFollowUpSubmit}
+                    disabled={!followUpText.trim() || isProcessing}
+                    className="shrink-0 text-primary hover:text-primary hover:bg-primary/10"
+                  >
+                    <Send className="w-4 h-4" />
+                  </Button>
+                </motion.div>
               )}
             </motion.div>
           ) : (

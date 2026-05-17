@@ -10,6 +10,11 @@ import { type ChartSpec } from "@/components/dashboard/chart-panel";
 import { Loader2, ZapOff, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string | any[];
+}
+
 export interface QueryResult {
   id: string;
   connection_id: string;
@@ -22,6 +27,8 @@ export interface QueryResult {
   // chartSpec is set when the agent called create_chart.
   // Undefined means no chart was requested for this query.
   chartSpec?: ChartSpec;
+  // Conversation history for follow-up questions
+  messages?: ConversationMessage[];
 }
 
 export interface Connection {
@@ -158,6 +165,34 @@ export default function Home() {
   const handleQueryError = React.useCallback(() => {
       setIsProcessing(false);
   }, []);
+
+  const handleFollowUp = React.useCallback(async (question: string, history: ConversationMessage[]) => {
+    if (!activeConnectionId || !activeQueryId) return;
+
+    setIsProcessing(true);
+
+    try {
+      const response = await apiService.ask(activeConnectionId, question, history);
+
+      // Update the existing query with new response data
+      setQueryHistory(prev => prev.map(q => {
+        if (q.id !== activeQueryId) return q;
+        return {
+          ...q,
+          text: question,
+          answer: response.answer,
+          data: response.data || q.data,
+          stats: response.stats || q.stats,
+          chartSpec: response.chartSpec ?? q.chartSpec,
+          messages: response.messages || [],
+        };
+      }));
+    } catch (err) {
+      console.error("Follow-up query failed:", err);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [activeConnectionId, activeQueryId]);
 
   const handleAddDatabase = React.useCallback(async (db: {
     name: string;
@@ -329,9 +364,11 @@ export default function Home() {
           queryStats={activeQuery?.stats}
           queryText={activeQuery?.text}
           queryAnswer={activeQuery?.answer}
+          queryMessages={activeQuery?.messages}
           chartSpec={activeQuery?.chartSpec}
           view={view}
           isProcessing={isProcessing}
+          onFollowUp={handleFollowUp}
         />
         
         {/* Floating Voice Controls */}

@@ -1285,11 +1285,13 @@ def generate_summary(question: str) -> str:
 def ask():
     """
     Natural-language question → SQL + results + stats.
+    Supports conversation history for follow-up questions.
     Saves to history automatically.
     """
     connection_id = request.headers.get("X-Connection-Id")
     body = request.get_json() or {}
     question = (body.get("question") or "").strip()
+    conversation_history = body.get("history", [])  # Previous messages for follow-up
 
     if not connection_id:
         return jsonify({"error": "Missing X-Connection-Id header"}), 400
@@ -1297,11 +1299,11 @@ def ask():
         return jsonify({"error": "Missing question field"}), 400
 
     try:
-        # 1. Run the agent (calls schema + query tools as needed)
+        # 1. Run the agent with conversation history for context
         final_text, messages = run_agent(
             user_message=question,
             connection_id=connection_id,
-            history=[],
+            history=conversation_history,
         )
 
         # 2. Extract the SQL and rows from the agent's tool calls
@@ -1311,19 +1313,20 @@ def ask():
         # 3. Generate stat cards
         stats = generate_stats(question, sql, rows)
 
-        # 4. Generate brief summary
-        summary = generate_summary(question)
+        # 4. Generate brief summary (only for first message in conversation)
+        summary = generate_summary(question) if not conversation_history else None
 
-        # 5. Save to history (best effort)
-        save_query_history(
-            connection_id=connection_id,
-            text=question,
-            data=rows,
-            stats=stats,
-            name=summary,
-        )
+        # 5. Save to history (best effort) - only save the first message
+        if not conversation_history:
+            save_query_history(
+                connection_id=connection_id,
+                text=question,
+                data=rows,
+                stats=stats,
+                name=summary,
+            )
 
-        # 6. Return frontend-shaped response
+        # 6. Return frontend-shaped response with updated conversation history
         return jsonify({
             "text": question,
             "name": summary,
@@ -1332,6 +1335,7 @@ def ask():
             "data": rows,
             "stats": stats,
             "chartSpec": chart_spec,
+            "messages": messages,  # Return full conversation for follow-ups
         })
     except Exception as e:
         print(f"ERROR in /ask: {e}")

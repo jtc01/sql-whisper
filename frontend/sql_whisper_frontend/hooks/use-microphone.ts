@@ -72,6 +72,7 @@ export function useMicrophone({ onStart, onSuccess, onError, activeConnectionId 
         data: response.data || [],
         stats: response.stats || [],
         chartSpec: response.chartSpec,
+        messages: response.messages || [],
       };
       onSuccess?.(result);
       setStatus("idle");
