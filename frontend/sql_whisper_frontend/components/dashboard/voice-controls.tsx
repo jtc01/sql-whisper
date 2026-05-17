@@ -91,17 +91,18 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false, activeCon
 
   const stopListening = React.useCallback(async (source: "keyboard" | "mouse") => {
     if (activeInteractionRef.current !== source || isStoppingRef.current) return;
-    
+
     isStoppingRef.current = true;
     console.log(`[Uplink] Terminating session from ${source}...`);
     try {
       if (taskIdRef.current) {
-        await apiService.stopTranscription(taskIdRef.current);
+        await apiService.stopTranscription(taskIdRef.current).catch(() => {});
         taskIdRef.current = null;
       }
       if (trtcRef.current) {
-        await trtcRef.current.stopLocalAudio();
-        await trtcRef.current.exitRoom();
+        await trtcRef.current.stopLocalAudio().catch(() => {});
+        await trtcRef.current.exitRoom().catch(() => {});
+        trtcRef.current = null; // Clear the client so a fresh one is created next time
       }
     } catch (error) {
       console.error("[Uplink] Termination Error:", error);
@@ -139,46 +140,64 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false, activeCon
         console.log("[Uplink] Initializing TRTC Instance...");
         trtcRef.current = trtcModule.create();
         trtcRef.current.on(trtcModule.EVENT.CUSTOM_MESSAGE, (event: { data: ArrayBuffer }) => {
-          const decoded = new TextDecoder().decode(event.data);
-          const msg = JSON.parse(decoded);
-          if (msg.type === 10000 && msg.payload?.end === true) {
-            const transcript = msg.payload.text;
-            console.log(`[Uplink] Transcript Received: "${transcript}"`);
-            handleAskRef.current(transcript);
+          try {
+            const decoded = new TextDecoder().decode(event.data);
+            console.log("[Uplink] CUSTOM_MESSAGE raw:", decoded);
+            const msg = JSON.parse(decoded);
+            console.log("[Uplink] CUSTOM_MESSAGE parsed:", msg);
+            if (msg.type === 10000) {
+              console.log("[Uplink] ASR message - end:", msg.payload?.end, "text:", msg.payload?.text);
+              if (msg.payload?.end === true && msg.payload?.text) {
+                const transcript = msg.payload.text;
+                console.log(`[Uplink] Final Transcript: "${transcript}"`);
+                handleAskRef.current(transcript);
+              }
+            }
+          } catch (e) {
+            console.warn("[Uplink] Could not parse CUSTOM_MESSAGE:", e);
           }
         });
       }
 
       console.log("[Uplink] Requesting UserSig...");
-      const { user_sig, sdk_app_id, user_id } = await apiService.getTRTCUserSig();
-      const roomId = Math.floor(Math.random() * 1000000);
+      const response = await apiService.getTRTCUserSig();
+      console.log("[Uplink] UserSig response:", response);
 
-      console.log(`[Uplink] Entering Room ${roomId}...`);
-      await trtcRef.current.enterRoom({ sdkAppId: Number(sdk_app_id), userId: user_id, userSig: user_sig, roomId });
+      const { user_sig, sdk_app_id, user_id } = response;
+      const sdkAppId = Number(sdk_app_id);
+
+      if (!sdkAppId || sdkAppId === 0) {
+        throw new Error(`Invalid sdk_app_id received: ${sdk_app_id}`);
+      }
+
+      // Room ID must be positive integer ≤ 2^31 (2147483647)
+      const roomId = Math.floor(Math.random() * 1_000_000_000);
+
+      console.log(`[Uplink] Entering Room ${roomId} as ${user_id} with sdkAppId ${sdkAppId}...`);
+      await trtcRef.current.enterRoom({ sdkAppId, userId: user_id, userSig: user_sig, roomId });
 
       console.log("[Uplink] Opening Local Audio...");
       await trtcRef.current.startLocalAudio();
 
       console.log("[Uplink] Starting Remote Transcription...");
-      const { task_id } = await apiService.startTranscription(String(roomId));
+      const { task_id } = await apiService.startTranscription(roomId);
       taskIdRef.current = task_id;
       console.log("[Uplink] Signal Stable.");
 
     } catch (error) {
       console.error("[Uplink] Hardware/Network Interference:", error);
       // Clean up on failure
-      const activeSource = activeInteractionRef.current;
-      if (activeSource) {
-        if (taskIdRef.current) {
-          apiService.stopTranscription(taskIdRef.current).catch(() => {});
-          taskIdRef.current = null;
-        }
-        if (trtcRef.current) {
-          trtcRef.current.exitRoom().catch(() => {});
-        }
-        activeInteractionRef.current = null;
-        setIsListening(false);
+      if (taskIdRef.current) {
+        apiService.stopTranscription(taskIdRef.current).catch(() => {});
+        taskIdRef.current = null;
       }
+      if (trtcRef.current) {
+        trtcRef.current.stopLocalAudio().catch(() => {});
+        trtcRef.current.exitRoom().catch(() => {});
+        trtcRef.current = null; // Clear so fresh client is created next time
+      }
+      activeInteractionRef.current = null;
+      setIsListening(false);
     } finally {
       isInitializingRef.current = false;
     }

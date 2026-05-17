@@ -48,13 +48,16 @@ export function DataStage({
 
   React.useEffect(() => {
     if (view === "explorer" && activeConnectionId) {
-      apiService.listTables(activeConnectionId).then((data) => {
-        setTables(data);
-        if (data.length > 0) setActiveTable(data[0].name);
-      }).catch((err) => {
-        console.error("Failed to list tables:", err);
-        setTables([]);
-      });
+      // Must load schema first (backend caches it for /sample calls)
+      apiService.loadSchema(activeConnectionId)
+        .then(() => apiService.listTables(activeConnectionId))
+        .then((data) => {
+          setTables(data);
+          if (data.length > 0) setActiveTable(data[0].name);
+        }).catch((err) => {
+          console.error("Failed to list tables:", err);
+          setTables([]);
+        });
     }
   }, [view, activeConnectionId]);
 
