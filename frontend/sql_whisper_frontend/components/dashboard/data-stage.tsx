@@ -43,13 +43,20 @@ export function DataStage({
   const [activeTable, setActiveTable] = React.useState<string | null>(null);
   const [tableSample, setTableSample] = React.useState<TableSample | null>(null);
   const [error, setError] = React.useState<string | null>(null);
+  const [schemaLoaded, setSchemaLoaded] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     if (view === "explorer" && activeConnectionId) {
       setError(null);
+      setSchemaLoaded(null);
+      setActiveTable(null);
+      setTables([]);
       // Must load schema first (backend caches it for /sample calls)
       apiService.loadSchema(activeConnectionId)
-        .then(() => apiService.listTables(activeConnectionId))
+        .then(() => {
+          setSchemaLoaded(activeConnectionId);
+          return apiService.listTables(activeConnectionId);
+        })
         .then((data) => {
           setTables(data);
           if (data.length > 0) setActiveTable(data[0].name);
@@ -62,7 +69,8 @@ export function DataStage({
   }, [view, activeConnectionId]);
 
   React.useEffect(() => {
-    if (view === "explorer" && activeConnectionId && activeTable) {
+    // Only fetch sample after schema is loaded for this connection
+    if (view === "explorer" && activeConnectionId && activeTable && schemaLoaded === activeConnectionId) {
       setTableSample(null);
       setError(null);
       apiService.getTableSample(activeConnectionId, activeTable).then((data) => {
@@ -73,7 +81,7 @@ export function DataStage({
         setTableSample(null);
       });
     }
-  }, [view, activeConnectionId, activeTable]);
+  }, [view, activeConnectionId, activeTable, schemaLoaded]);
 
   React.useEffect(() => {
     const updateTime = () => {
