@@ -81,3 +81,4 @@ Thumbs.db
 # Secrets
 .env
 backend/.env
+backend/local_data.db
