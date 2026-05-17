@@ -25,8 +25,8 @@ const editDatabaseSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   host: z.string().min(1, "Host is required"),
   port: z.string().min(1, "Port is required"),
-  username: z.string().min(1, "Username is required"),
-  password: z.string().optional(), // Optional for edit - only update if provided
+  username: z.string().optional(), // Optional for edit - keep existing if not provided
+  password: z.string().optional(), // Optional for edit - keep existing if not provided
   db_name: z.string().min(1, "Database name is required"),
   db_type: z.enum(["mysql", "tdsql"]),
 });
@@ -114,13 +114,16 @@ export function EditDatabaseDialog({ connection, open, onOpenChange, onUpdateDat
         updateData.password = data.password;
       }
 
+      console.log("[EditDialog] Updating connection:", connection.id, updateData);
       await onUpdateDatabase(connection.id, updateData);
+      console.log("[EditDialog] Update successful");
       setResult("success");
       setTimeout(() => {
         onOpenChange(false);
         setResult(null);
       }, 1000);
     } catch (error) {
+      console.error("[EditDialog] Update failed:", error);
       setResult("error");
       const errMessage = error instanceof Error ? error.message : "Failed to update connection.";
       setErrorMessage(errMessage);

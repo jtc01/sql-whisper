@@ -15,6 +15,7 @@ export interface QueryResult {
   connection_id: string;
   name?: string;
   text: string;
+  answer?: string; // AI response text
   created_at: string; // ISO-8601
   data: Record<string, any>[];
   stats: { label: string; value: string; color?: string }[];
@@ -320,13 +321,14 @@ export default function Home() {
 
       {/* Main Content Area */}
       <div className="relative flex-1 flex flex-col min-w-0">
-        <DataStage 
-          hasData={hasData} 
+        <DataStage
+          hasData={hasData}
           activeConnectionName={activeConnection?.name}
           activeConnectionId={activeConnectionId}
           queryData={activeQuery?.data}
           queryStats={activeQuery?.stats}
           queryText={activeQuery?.text}
+          queryAnswer={activeQuery?.answer}
           chartSpec={activeQuery?.chartSpec}
           view={view}
           isProcessing={isProcessing}

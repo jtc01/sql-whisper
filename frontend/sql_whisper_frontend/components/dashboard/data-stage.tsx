@@ -15,23 +15,25 @@ import { Search, Database, Terminal, ZapOff, Loader2 } from "lucide-react";
 import { apiService, type TableInfo, type TableSample } from "@/lib/api-service";
 import { ChartPanel, type ChartSpec } from "@/components/dashboard/chart-panel";
 
-export function DataStage({ 
-  hasData = true, 
+export function DataStage({
+  hasData = true,
   activeConnectionName,
   activeConnectionId,
   queryData = [],
   queryStats = [],
   queryText,
+  queryAnswer,
   chartSpec,
   view = "telemetry",
   isProcessing = false
-}: { 
+}: {
   hasData?: boolean;
   activeConnectionName?: string;
   activeConnectionId?: string;
   queryData?: Record<string, any>[];
   queryStats?: { label: string; value: string; color?: string }[];
   queryText?: string;
+  queryAnswer?: string;
   // chartSpec is present when the agent called create_chart for this query.
   // When undefined, no chart is rendered and only the table is shown.
   chartSpec?: ChartSpec;
@@ -279,7 +281,7 @@ export function DataStage({
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 {queryStats.map((stat, i) => (
-                  <motion.div 
+                  <motion.div
                     key={`${stat.label}-${i}`}
                     initial={{ opacity: 0, scale: 0.98 }}
                     animate={{ opacity: 1, scale: 1 }}
@@ -291,6 +293,38 @@ export function DataStage({
                   </motion.div>
                 ))}
               </div>
+            </motion.div>
+          ) : hasData && queryAnswer ? (
+            /* Answer-only view when there's a response but no data rows */
+            <motion.div
+              key="answer-view"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              transition={{ duration: 0.4, ease: "easeOut" }}
+              className="space-y-6"
+            >
+              <div className="p-6 rounded-lg border border-primary/20 bg-primary/5">
+                <div className="text-[10px] font-mono text-primary uppercase tracking-[0.2em] mb-3">AI Response</div>
+                <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">{queryAnswer}</p>
+              </div>
+
+              {queryStats.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                  {queryStats.map((stat, i) => (
+                    <motion.div
+                      key={`${stat.label}-${i}`}
+                      initial={{ opacity: 0, scale: 0.98 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 0.2 + (i * 0.05) }}
+                      className="p-5 rounded-lg border border-border bg-card/10 hover:bg-card/20 transition-colors duration-200"
+                    >
+                      <div className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.2em]">{stat.label}</div>
+                      <div className={cn("text-2xl font-bold mt-1.5 tracking-tight", stat.color || "text-foreground")}>{stat.value}</div>
+                    </motion.div>
+                  ))}
+                </div>
+              )}
             </motion.div>
           ) : (
             <motion.div 

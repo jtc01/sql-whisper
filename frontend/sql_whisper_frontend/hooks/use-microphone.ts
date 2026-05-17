@@ -67,6 +67,7 @@ export function useMicrophone({ onStart, onSuccess, onError, activeConnectionId 
         id: `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
         connection_id: activeConnectionId,
         text: response.text || question,
+        answer: response.answer,
         created_at: new Date().toISOString(),
         data: response.data || [],
         stats: response.stats || [],
