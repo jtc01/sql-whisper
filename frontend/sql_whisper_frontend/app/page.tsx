@@ -57,6 +57,7 @@ export default function Home() {
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [hasData, setHasData] = React.useState(false);
   const [isQueryPending, setIsQueryPending] = React.useState(true);
+  const [hasActiveConversation, setHasActiveConversation] = React.useState(false);
 
   // 1. Initial Load: Reachability + Connections
   React.useEffect(() => {
@@ -182,11 +183,23 @@ export default function Home() {
       setActiveQueryId(localResult.id);
       setView("telemetry");
     }
+    // Mark that we now have an active conversation
+    setHasActiveConversation(true);
   }, [activeConnectionId, activeQueryId]);
 
   const handleQueryError = React.useCallback(() => {
       setIsProcessing(false);
   }, []);
+
+  const handleNewConversation = React.useCallback(async () => {
+    if (!activeConnectionId) return;
+    try {
+      await apiService.resetConversation(activeConnectionId);
+      setHasActiveConversation(false);
+    } catch (err) {
+      console.error("Failed to reset conversation:", err);
+    }
+  }, [activeConnectionId]);
 
   const handleFollowUp = React.useCallback(async (question: string, history: ConversationMessage[]) => {
     if (!activeConnectionId || !activeQueryId) return;
@@ -402,7 +415,9 @@ export default function Home() {
           onQueryStart={handleQueryStart}
           onQueryComplete={handleQuerySuccess}
           onQueryError={handleQueryError}
+          onNewConversation={handleNewConversation}
           conversationHistory={activeQuery?.messages}
+          hasActiveConversation={hasActiveConversation}
         />
       </div>
     </main>

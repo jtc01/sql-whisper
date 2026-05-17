@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Mic, Square, Loader2, Keyboard, Send, X, AlertCircle } from "lucide-react";
+import { Mic, Square, Loader2, Keyboard, Send, X, AlertCircle, RotateCcw } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -14,12 +14,14 @@ interface VoiceControlsProps {
   onQueryStart?: () => void;
   onQueryComplete?: (result: QueryResult) => void;
   onQueryError?: () => void;
+  onNewConversation?: () => void;
   showKeyboard?: boolean;
   activeConnectionId?: string;
   conversationHistory?: ConversationMessage[];
+  hasActiveConversation?: boolean;
 }
 
-export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, showKeyboard = true, activeConnectionId, conversationHistory = [] }: VoiceControlsProps) {
+export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, onNewConversation, showKeyboard = true, activeConnectionId, conversationHistory = [], hasActiveConversation = false }: VoiceControlsProps) {
   const [mode, setMode] = React.useState<"voice" | "text">("voice");
   const [textQuery, setTextQuery] = React.useState("");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
@@ -112,13 +114,42 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
   const isBusy = status !== "idle" && status !== "error";
 
   return (
-    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-xl px-4 z-50 flex flex-col items-center gap-6">
-      
+    <div className="absolute bottom-8 left-1/2 -translate-x-1/2 w-full max-w-xl px-4 z-50 flex flex-col items-center gap-4">
+
+      {/* 0. New Conversation Button - shows when in follow-up context */}
+      <AnimatePresence>
+        {hasActiveConversation && onNewConversation && (
+          <motion.button
+            initial={{ opacity: 0, y: 10, scale: 0.95 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 10, scale: 0.95 }}
+            onClick={onNewConversation}
+            className="flex items-center gap-2 px-4 py-2 rounded-full border border-border bg-card/80 backdrop-blur-sm hover:bg-accent hover:border-primary/30 transition-all text-muted-foreground hover:text-foreground shadow-lg"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            <span className="text-[10px] font-mono uppercase tracking-wider">New Conversation</span>
+          </motion.button>
+        )}
+      </AnimatePresence>
+
       {/* 1. Status Telemetry Banner */}
       <div className="h-10">
         <AnimatePresence mode="wait">
+          {status === "idle" && !error && !errorMessage && hasActiveConversation && (
+            <motion.div
+              key="followup-hint"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              className="px-4 py-1.5 rounded-lg border border-primary/20 bg-primary/5 backdrop-blur-xl shadow-lg flex items-center gap-2"
+            >
+              <div className="w-1.5 h-1.5 rounded-full bg-primary animate-pulse" />
+              <span className="text-[10px] font-mono text-primary uppercase tracking-wider">Follow-up Mode</span>
+            </motion.div>
+          )}
           {(status !== "idle" || error || errorMessage) && (
-            <motion.div 
+            <motion.div
+              key="status-banner"
               initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: 10 }}
               className={cn(
                 "px-4 py-1.5 rounded-lg border backdrop-blur-xl shadow-lg flex items-center gap-3",
