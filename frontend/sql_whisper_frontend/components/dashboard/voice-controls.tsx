@@ -57,6 +57,7 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
         connection_id: activeConnectionId,
         text: response.text || question,
         answer: response.answer,
+        sql: response.sql,
         created_at: new Date().toISOString(),
         data: response.data || [],
         stats: response.stats || [],
