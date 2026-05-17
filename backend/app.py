@@ -205,13 +205,43 @@ def _conversation_key(connection_id: str) -> str:
     return f"conversation:{connection_id}"
 
 
+def _validate_conversation(messages: list) -> bool:
+    """
+    Validates that a conversation doesn't have orphaned tool_result blocks.
+    Returns True if valid, False if corrupted.
+    """
+    if not messages:
+        return True
+
+    # Check first message: if it's a user message with tool_result blocks, it's corrupted
+    # (those tool_results reference tool_use IDs that were trimmed out)
+    first = messages[0]
+    if first.get("role") == "user":
+        content = first.get("content")
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    return False
+    return True
+
+
 def get_conversation(connection_id: str) -> list:
     """Returns the saved message history for this connection, or [] if none."""
     if not redis_client:
         return []
     try:
         raw = redis_client.get(_conversation_key(connection_id))
-        return json.loads(raw) if raw else []
+        if not raw:
+            return []
+        messages = json.loads(raw)
+
+        # Validate conversation integrity
+        if not _validate_conversation(messages):
+            print(f"[conversation] detected corrupted state for {connection_id}, clearing")
+            clear_conversation(connection_id)
+            return []
+
+        return messages
     except Exception as e:
         print(f"WARN: conversation read failed: {e}")
         return []
