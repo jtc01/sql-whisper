@@ -6,6 +6,7 @@ import { DataStage } from "@/components/dashboard/data-stage";
 import { VoiceControls } from "@/components/dashboard/voice-controls";
 import { apiService } from "@/lib/api-service";
 import { pingBackend } from "@/lib/api-config";
+import { type ChartSpec } from "@/components/dashboard/chart-panel";
 import { Loader2, ZapOff, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -17,6 +18,9 @@ export interface QueryResult {
   created_at: string; // ISO-8601
   data: Record<string, any>[];
   stats: { label: string; value: string; color?: string }[];
+  // chartSpec is set when the agent called create_chart.
+  // Undefined means no chart was requested for this query.
+  chartSpec?: ChartSpec;
 }
 
 export interface Connection {
@@ -273,6 +277,7 @@ export default function Home() {
           queryData={activeQuery?.data}
           queryStats={activeQuery?.stats}
           queryText={activeQuery?.text}
+          chartSpec={activeQuery?.chartSpec}
           view={view}
           isProcessing={isProcessing}
         />

@@ -1122,6 +1122,25 @@ def extract_sql_and_rows(messages: list) -> tuple[str | None, list[dict]]:
 
     return last_sql, last_rows
 
+def extract_chart_spec(messages: list) -> dict | None:
+    """
+    Walks the agent's message history to find a create_chart tool call.
+    Returns the tool input dict (chart_type, x, y, title, color?) or None
+    if the agent never called create_chart for this query.
+    """
+    for msg in messages:
+        content = msg.get("content")
+        if not isinstance(content, list):
+            continue
+        for block in content:
+            if (
+                hasattr(block, "type")
+                and block.type == "tool_use"
+                and block.name == "create_chart"
+            ):
+                return block.input  # {"chart_type", "x", "y", "title", "color"?}
+    return None
+
 
 STATS_PROMPT = """You are generating 3 stat cards summarising a SQL query result for a UI dashboard.
 
@@ -1228,6 +1247,7 @@ def ask():
 
         # 2. Extract the SQL and rows from the agent's tool calls
         sql, rows = extract_sql_and_rows(messages)
+        chart_spec = extract_chart_spec(messages)
 
         # 3. Generate stat cards
         stats = generate_stats(question, sql, rows)
@@ -1252,6 +1272,7 @@ def ask():
             "sql": sql,
             "data": rows,
             "stats": stats,
+            "chartSpec": chart_spec,
         })
     except Exception as e:
         print(f"ERROR in /ask: {e}")

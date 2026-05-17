@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Search, Database, Terminal, ZapOff, Loader2 } from "lucide-react";
 import { apiService, type TableInfo, type TableSample } from "@/lib/api-service";
+import { ChartPanel, type ChartSpec } from "@/components/dashboard/chart-panel";
 
 export function DataStage({ 
   hasData = true, 
@@ -21,6 +22,7 @@ export function DataStage({
   queryData = [],
   queryStats = [],
   queryText,
+  chartSpec,
   view = "telemetry",
   isProcessing = false
 }: { 
@@ -30,6 +32,9 @@ export function DataStage({
   queryData?: Record<string, any>[];
   queryStats?: { label: string; value: string; color?: string }[];
   queryText?: string;
+  // chartSpec is present when the agent called create_chart for this query.
+  // When undefined, no chart is rendered and only the table is shown.
+  chartSpec?: ChartSpec;
   view?: "telemetry" | "explorer";
   isProcessing?: boolean;
 }) {
@@ -210,6 +215,29 @@ export function DataStage({
               transition={{ duration: 0.4, ease: "easeOut" }}
               className="space-y-6"
             >
+              {/* ── Chart panel ──────────────────────────────────────────────
+                  Rendered only when the agent called create_chart.
+                  The chart sits above the table so it's the first thing
+                  the user sees. To move it below the table, cut this block
+                  and paste it after the table block below.
+              ─────────────────────────────────────────────────────────────── */}
+              {chartSpec && (
+                <motion.div
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ duration: 0.4 }}
+                  className="rounded-lg border border-border bg-card/10 overflow-hidden shadow-sm"
+                  style={{ height: 360 }}
+                >
+                  <ChartPanel
+                    spec={chartSpec}
+                    data={queryData}
+                    className="w-full h-full"
+                  />
+                </motion.div>
+              )}
+
+              {/* ── Data table ─────────────────────────────────────────────── */}
               <div className="rounded-lg border border-border bg-card/10 overflow-hidden shadow-sm">
                 <Table>
                   <TableHeader className="bg-muted/30">
