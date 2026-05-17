@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { Trash2, Database as DbIcon, Settings2, MoreVertical, History, MessageSquare, Plus, ChevronRight, ChevronLeft } from "lucide-react";
+import { Trash2, Database as DbIcon, Settings2, MoreVertical, History, MessageSquare, Plus, ChevronRight, ChevronLeft, Sparkles } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -81,14 +81,14 @@ export function Sidebar({
       {/* Header */}
       <div className="flex items-center p-4 border-b border-border h-16 shrink-0">
         {!isCollapsed && (
-          <motion.div 
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="flex items-center gap-2 flex-1"
           >
-            <History className="w-4 h-4 text-muted-foreground" />
-            <span className="font-semibold text-foreground whitespace-nowrap text-sm">Query History</span>
+            <Sparkles className="w-4 h-4 text-primary" />
+            <span className="font-semibold text-foreground whitespace-nowrap text-sm">SQL Whisper</span>
           </motion.div>
         )}
         <div className={cn("flex items-center gap-2", isCollapsed && "w-full justify-center")}>
@@ -105,20 +105,20 @@ export function Sidebar({
 
       {/* New Query & Add Source Buttons */}
       <div className="p-3 space-y-2 shrink-0 flex flex-col items-center border-b border-border">
-        <Button 
-          variant="outline" 
+        <Button
+          variant="outline"
           onClick={onNewQuery}
           className={cn(
-            "w-full justify-start gap-2 border-border bg-accent/10 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors duration-200 h-10",
+            "w-full justify-start gap-2 h-10 px-4 bg-card/30 border-dashed border-border hover:border-primary/50 transition-all font-mono text-[10px] uppercase tracking-wider",
             isCollapsed && "w-10 px-0 justify-center"
           )}
         >
-          <Plus className="w-4 h-4 shrink-0" />
-          {!isCollapsed && <span className="text-xs font-bold uppercase tracking-wider">New Query</span>}
+          <Plus className="w-3 h-3 text-muted-foreground shrink-0" />
+          {!isCollapsed && "New Query"}
         </Button>
 
-        <AddDatabaseDialog 
-          isCollapsed={isCollapsed} 
+        <AddDatabaseDialog
+          isCollapsed={isCollapsed}
           onAddDatabase={onAddDatabase}
         />
       </div>
