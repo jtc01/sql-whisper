@@ -87,32 +87,57 @@ function buildTraces(spec: ChartSpec, data: Record<string, any>[]): Plotly.Data[
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ChartPanel({ spec, data, className }: ChartPanelProps) {
+  const [isDark, setIsDark] = React.useState(true);
+
+  // Detect theme changes
+  React.useEffect(() => {
+    const checkTheme = () => {
+      setIsDark(document.documentElement.classList.contains("dark"));
+    };
+    checkTheme();
+
+    // Watch for theme changes
+    const observer = new MutationObserver(checkTheme);
+    observer.observe(document.documentElement, {
+      attributes: true,
+      attributeFilter: ["class"],
+    });
+
+    return () => observer.disconnect();
+  }, []);
+
   if (!data || data.length === 0) return null;
 
   const traces = buildTraces(spec, data);
 
+  // Theme-aware colors
+  const fontColor = isDark ? "#e5e5e5" : "#1a1a1a";
+  const gridColor = isDark ? "rgba(255,255,255,0.07)" : "rgba(0,0,0,0.07)";
+  const zeroLineColor = isDark ? "rgba(255,255,255,0.15)" : "rgba(0,0,0,0.15)";
+
   /**
    * Plotly layout — edit freely.
    * transparent paper_bgcolor / plot_bgcolor makes it respect the app theme.
-   * font.color inherits from CSS so it works in both light and dark mode.
    */
   const layout: Partial<Plotly.Layout> = {
-    title: { text: spec.title, font: { size: 14 } },
+    title: { text: spec.title, font: { size: 14, color: fontColor } },
     paper_bgcolor: "transparent",
     plot_bgcolor: "transparent",
-    font: { color: "var(--foreground, #fff)", size: 11 },
+    font: { color: fontColor, size: 11 },
     margin: { t: 48, r: 24, b: 48, l: 48 },
     xaxis: {
       title: { text: spec.x },
-      gridcolor: "rgba(255,255,255,0.07)",
-      zerolinecolor: "rgba(255,255,255,0.15)",
+      gridcolor: gridColor,
+      zerolinecolor: zeroLineColor,
+      tickfont: { color: fontColor },
     },
     yaxis: {
       title: { text: spec.y },
-      gridcolor: "rgba(255,255,255,0.07)",
-      zerolinecolor: "rgba(255,255,255,0.15)",
+      gridcolor: gridColor,
+      zerolinecolor: zeroLineColor,
+      tickfont: { color: fontColor },
     },
-    legend: { orientation: "h", y: -0.2 },
+    legend: { orientation: "h", y: -0.2, font: { color: fontColor } },
     autosize: true,
   };
 
