@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
 import { apiService } from "@/lib/api-service";
-import { type QueryResult } from "@/app/page";
+import { type QueryResult, type ConversationMessage } from "@/app/page";
 import { useMicrophone } from "@/hooks/use-microphone";
 
 interface VoiceControlsProps {
@@ -16,9 +16,10 @@ interface VoiceControlsProps {
   onQueryError?: () => void;
   showKeyboard?: boolean;
   activeConnectionId?: string;
+  conversationHistory?: ConversationMessage[];
 }
 
-export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, showKeyboard = true, activeConnectionId }: VoiceControlsProps) {
+export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, showKeyboard = true, activeConnectionId, conversationHistory = [] }: VoiceControlsProps) {
   const [mode, setMode] = React.useState<"voice" | "text">("voice");
   const [textQuery, setTextQuery] = React.useState("");
   const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
@@ -35,7 +36,8 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
     activeConnectionId,
     onStart: onQueryStart,
     onSuccess: onQueryComplete,
-    onError: onQueryError
+    onError: onQueryError,
+    conversationHistory,
   });
 
   // Keep a ref synced with status so async handlers can read the current state reliably
@@ -48,7 +50,20 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
     if (!activeConnectionId || !question.trim()) return;
     onQueryStart?.();
     try {
-      const result = await apiService.ask(activeConnectionId, question);
+      const isFollowUp = conversationHistory.length > 0;
+      const response = await apiService.ask(activeConnectionId, question, conversationHistory);
+      const result: QueryResult = {
+        id: `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+        connection_id: activeConnectionId,
+        text: response.text || question,
+        answer: response.answer,
+        created_at: new Date().toISOString(),
+        data: response.data || [],
+        stats: response.stats || [],
+        chartSpec: response.chartSpec,
+        messages: response.messages || [],
+        isFollowUp,
+      };
       onQueryComplete?.(result);
       setTextQuery("");
       setMode("voice");
@@ -58,7 +73,7 @@ export function VoiceControls({ onQueryStart, onQueryComplete, onQueryError, sho
       setErrorMessage("Query Failed - Backend Error");
       setTimeout(() => setErrorMessage(null), 3000);
     }
-  }, [activeConnectionId, onQueryStart, onQueryComplete, onQueryError]);
+  }, [activeConnectionId, conversationHistory, onQueryStart, onQueryComplete, onQueryError]);
 
   // Keyboard Spacebar integration
   React.useEffect(() => {

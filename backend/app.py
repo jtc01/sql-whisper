@@ -1151,10 +1151,51 @@ def trtc_stop_transcription():
 from agent import run_agent, client as anthropic_client, MODEL as ANTHROPIC_MODEL
 
 
+def serialize_messages(messages: list) -> list[dict]:
+    """
+    Converts the agent's message history into a JSON-serializable format.
+    Anthropic SDK returns ContentBlock objects that can't be directly serialized,
+    so we need to convert them to plain dicts.
+    """
+    serialized = []
+    for msg in messages:
+        role = msg.get("role")
+        content = msg.get("content")
+
+        if isinstance(content, str):
+            # Simple string content
+            serialized.append({"role": role, "content": content})
+        elif isinstance(content, list):
+            # Content is a list of blocks (text, tool_use, tool_result)
+            serialized_content = []
+            for block in content:
+                if hasattr(block, "type"):
+                    # This is an Anthropic SDK object
+                    if block.type == "text":
+                        serialized_content.append({"type": "text", "text": block.text})
+                    elif block.type == "tool_use":
+                        serialized_content.append({
+                            "type": "tool_use",
+                            "id": block.id,
+                            "name": block.name,
+                            "input": block.input
+                        })
+                elif isinstance(block, dict):
+                    # Already a dict (e.g., tool_result)
+                    serialized_content.append(block)
+            serialized.append({"role": role, "content": serialized_content})
+        else:
+            # Fallback: try to use as-is
+            serialized.append({"role": role, "content": content})
+
+    return serialized
+
+
 def extract_sql_and_rows(messages: list) -> tuple[str | None, list[dict]]:
     """
     Walks the agent's message history to find the last run_query tool call
     and its result. Returns (sql, rows) or (None, []) if not found.
+    Handles both Anthropic SDK objects and already-serialized dicts.
     """
     last_sql = None
     last_rows = []
@@ -1165,9 +1206,12 @@ def extract_sql_and_rows(messages: list) -> tuple[str | None, list[dict]]:
             continue
 
         for block in content:
-            # Claude's tool_use block contains the SQL it asked to run
+            # Handle Anthropic SDK tool_use object
             if hasattr(block, "type") and block.type == "tool_use" and block.name == "run_query":
                 last_sql = block.input.get("sql")
+            # Handle already-serialized dict (from follow-up history)
+            elif isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") == "run_query":
+                last_sql = block.get("input", {}).get("sql")
 
             # The user-role tool_result block contains the rows
             if isinstance(block, dict) and block.get("type") == "tool_result":
@@ -1185,18 +1229,27 @@ def extract_chart_spec(messages: list) -> dict | None:
     Walks the agent's message history to find a create_chart tool call.
     Returns the tool input dict (chart_type, x, y, title, color?) or None
     if the agent never called create_chart for this query.
+    Handles both Anthropic SDK objects and already-serialized dicts.
     """
     for msg in messages:
         content = msg.get("content")
         if not isinstance(content, list):
             continue
         for block in content:
+            # Handle Anthropic SDK tool_use object
             if (
                 hasattr(block, "type")
                 and block.type == "tool_use"
                 and block.name == "create_chart"
             ):
                 return block.input  # {"chart_type", "x", "y", "title", "color"?}
+            # Handle already-serialized dict (from follow-up history)
+            elif (
+                isinstance(block, dict)
+                and block.get("type") == "tool_use"
+                and block.get("name") == "create_chart"
+            ):
+                return block.get("input")
     return None
 
 
@@ -1285,11 +1338,13 @@ def generate_summary(question: str) -> str:
 def ask():
     """
     Natural-language question → SQL + results + stats.
+    Supports conversation history for follow-up questions.
     Saves to history automatically.
     """
     connection_id = request.headers.get("X-Connection-Id")
     body = request.get_json() or {}
     question = (body.get("question") or "").strip()
+    conversation_history = body.get("history", [])  # Previous messages for follow-up
 
     if not connection_id:
         return jsonify({"error": "Missing X-Connection-Id header"}), 400
@@ -1297,11 +1352,11 @@ def ask():
         return jsonify({"error": "Missing question field"}), 400
 
     try:
-        # 1. Run the agent (calls schema + query tools as needed)
+        # 1. Run the agent with conversation history for context
         final_text, messages = run_agent(
             user_message=question,
             connection_id=connection_id,
-            history=[],
+            history=conversation_history,
         )
 
         # 2. Extract the SQL and rows from the agent's tool calls
@@ -1311,19 +1366,20 @@ def ask():
         # 3. Generate stat cards
         stats = generate_stats(question, sql, rows)
 
-        # 4. Generate brief summary
-        summary = generate_summary(question)
+        # 4. Generate brief summary (only for first message in conversation)
+        summary = generate_summary(question) if not conversation_history else None
 
-        # 5. Save to history (best effort)
-        save_query_history(
-            connection_id=connection_id,
-            text=question,
-            data=rows,
-            stats=stats,
-            name=summary,
-        )
+        # 5. Save to history (best effort) - only save the first message
+        if not conversation_history:
+            save_query_history(
+                connection_id=connection_id,
+                text=question,
+                data=rows,
+                stats=stats,
+                name=summary,
+            )
 
-        # 6. Return frontend-shaped response
+        # 6. Return frontend-shaped response with updated conversation history
         return jsonify({
             "text": question,
             "name": summary,
@@ -1332,6 +1388,7 @@ def ask():
             "data": rows,
             "stats": stats,
             "chartSpec": chart_spec,
+            "messages": serialize_messages(messages),  # Return serialized conversation for follow-ups
         })
     except Exception as e:
         print(f"ERROR in /ask: {e}")

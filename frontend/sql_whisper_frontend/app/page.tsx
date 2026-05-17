@@ -10,6 +10,11 @@ import { type ChartSpec } from "@/components/dashboard/chart-panel";
 import { Loader2, ZapOff, RefreshCcw } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+export interface ConversationMessage {
+  role: "user" | "assistant";
+  content: string | any[];
+}
+
 export interface QueryResult {
   id: string;
   connection_id: string;
@@ -22,6 +27,10 @@ export interface QueryResult {
   // chartSpec is set when the agent called create_chart.
   // Undefined means no chart was requested for this query.
   chartSpec?: ChartSpec;
+  // Conversation history for follow-up questions
+  messages?: ConversationMessage[];
+  // Flag to indicate this was a follow-up to an existing query
+  isFollowUp?: boolean;
 }
 
 export interface Connection {
@@ -139,25 +148,71 @@ export default function Home() {
 
   const handleQuerySuccess = React.useCallback((result: Partial<QueryResult>) => {
     setIsProcessing(false);
-    
-    // The backend now returns a Partial result without IDs, so we generate them locally for the frontend context store
-    const localResult: QueryResult = {
-      ...result,
-      id: result.id || Math.random().toString(36).substring(2, 15),
-      connection_id: result.connection_id || activeConnectionId,
-      created_at: result.created_at || new Date().toISOString(),
-    } as QueryResult;
 
-    setQueryHistory(prev => [localResult, ...prev]);
-    setHasData(true);
-    setIsQueryPending(true);
-    setActiveQueryId(localResult.id);
-    setView("telemetry");
-  }, [activeConnectionId]);
+    // Check if this is a follow-up to an existing query
+    if (result.isFollowUp && activeQueryId) {
+      // Update the existing query with new response data
+      setQueryHistory(prev => prev.map(q => {
+        if (q.id !== activeQueryId) return q;
+        return {
+          ...q,
+          text: result.text || q.text,
+          answer: result.answer,
+          data: result.data || q.data,
+          stats: result.stats || q.stats,
+          chartSpec: result.chartSpec ?? q.chartSpec,
+          messages: result.messages || [],
+        };
+      }));
+      setHasData(true);
+    } else {
+      // Create a new query entry
+      const localResult: QueryResult = {
+        ...result,
+        id: result.id || Math.random().toString(36).substring(2, 15),
+        connection_id: result.connection_id || activeConnectionId,
+        created_at: result.created_at || new Date().toISOString(),
+      } as QueryResult;
+
+      setQueryHistory(prev => [localResult, ...prev]);
+      setHasData(true);
+      setIsQueryPending(true);
+      setActiveQueryId(localResult.id);
+      setView("telemetry");
+    }
+  }, [activeConnectionId, activeQueryId]);
 
   const handleQueryError = React.useCallback(() => {
       setIsProcessing(false);
   }, []);
+
+  const handleFollowUp = React.useCallback(async (question: string, history: ConversationMessage[]) => {
+    if (!activeConnectionId || !activeQueryId) return;
+
+    setIsProcessing(true);
+
+    try {
+      const response = await apiService.ask(activeConnectionId, question, history);
+
+      // Update the existing query with new response data
+      setQueryHistory(prev => prev.map(q => {
+        if (q.id !== activeQueryId) return q;
+        return {
+          ...q,
+          text: question,
+          answer: response.answer,
+          data: response.data || q.data,
+          stats: response.stats || q.stats,
+          chartSpec: response.chartSpec ?? q.chartSpec,
+          messages: response.messages || [],
+        };
+      }));
+    } catch (err) {
+      console.error("Follow-up query failed:", err);
+    } finally {
+      setIsProcessing(false);
+    }
+  }, [activeConnectionId, activeQueryId]);
 
   const handleAddDatabase = React.useCallback(async (db: {
     name: string;
@@ -329,18 +384,21 @@ export default function Home() {
           queryStats={activeQuery?.stats}
           queryText={activeQuery?.text}
           queryAnswer={activeQuery?.answer}
+          queryMessages={activeQuery?.messages}
           chartSpec={activeQuery?.chartSpec}
           view={view}
           isProcessing={isProcessing}
+          onFollowUp={handleFollowUp}
         />
         
         {/* Floating Voice Controls */}
-        <VoiceControls 
+        <VoiceControls
           activeConnectionId={activeConnectionId}
-          showKeyboard={isQueryPending} 
+          showKeyboard={isQueryPending}
           onQueryStart={handleQueryStart}
           onQueryComplete={handleQuerySuccess}
           onQueryError={handleQueryError}
+          conversationHistory={activeQuery?.messages}
         />
       </div>
     </main>

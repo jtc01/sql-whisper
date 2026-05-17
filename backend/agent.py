@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import anthropic
 import requests
 
@@ -9,6 +10,10 @@ import requests
 # -------------------------------------------------------
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 MODEL = "claude-haiku-4-5-20251001"
+
+# Retry configuration for transient API errors
+MAX_RETRIES = 3
+RETRY_DELAY_BASE = 2  # seconds, will be multiplied by attempt number
 # -------------------------------------------------------
 # System prompt
 # Tells Claude its role, what tools it has, and how to
@@ -251,6 +256,52 @@ def execute_tool(tool_name: str, tool_input: dict, connection_id: str) -> str:
 
 
 # -------------------------------------------------------
+# Retry wrapper for Anthropic API calls
+# Handles transient errors like 529 (overloaded) with
+# exponential backoff
+# -------------------------------------------------------
+def call_anthropic_with_retry(messages: list[dict]) -> anthropic.types.Message:
+    """
+    Wraps the Anthropic API call with retry logic for transient errors.
+    Retries on 529 (overloaded), 500, 502, 503, 504 errors.
+    Uses exponential backoff between retries.
+    """
+    last_error = None
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        try:
+            return client.messages.create(
+                model=MODEL,
+                max_tokens=4096,
+                system=SYSTEM_PROMPT,
+                tools=TOOLS,
+                messages=messages
+            )
+        except anthropic.APIStatusError as e:
+            last_error = e
+            # Retry on overloaded (529) and server errors (5xx)
+            if e.status_code in (429, 500, 502, 503, 504, 529):
+                if attempt < MAX_RETRIES:
+                    delay = RETRY_DELAY_BASE * attempt
+                    print(f"[agent] API error {e.status_code}, retrying in {delay}s (attempt {attempt}/{MAX_RETRIES})")
+                    time.sleep(delay)
+                    continue
+            # Non-retryable error, raise immediately
+            raise
+        except anthropic.APIConnectionError as e:
+            last_error = e
+            if attempt < MAX_RETRIES:
+                delay = RETRY_DELAY_BASE * attempt
+                print(f"[agent] Connection error, retrying in {delay}s (attempt {attempt}/{MAX_RETRIES})")
+                time.sleep(delay)
+                continue
+            raise
+
+    # All retries exhausted
+    raise last_error
+
+
+# -------------------------------------------------------
 # Agentic loop
 # Sends the conversation to Claude, handles tool calls
 # in a loop until Claude produces a final text response,
@@ -281,13 +332,7 @@ def run_agent(user_message: str, connection_id: str, history: list[dict]) -> tup
     messages = history + [{"role": "user", "content": user_message}]
 
     while True:
-        response = client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            system=SYSTEM_PROMPT,
-            tools=TOOLS,
-            messages=messages
-        )
+        response = call_anthropic_with_retry(messages)
 
         # append Claude's response to the running message history
         messages.append({"role": "assistant", "content": response.content})
