@@ -13,6 +13,8 @@ export interface QueryResult {
   id: string;
   connection_id: string;
   text: string;
+  answer?: string; // AI response text
+  sql?: string | null; // Generated SQL query
   created_at: string; // ISO-8601
   data: Record<string, any>[];
   stats: { label: string; value: string; color?: string }[];
@@ -125,11 +127,18 @@ export default function Home() {
   }, []);
 
   const handleQuerySuccess = React.useCallback((result: QueryResult) => {
-    setQueryHistory(prev => [result, ...prev]);
+    console.log("[Page] handleQuerySuccess called with:", result);
+    console.log("[Page] result.id:", result.id);
+    console.log("[Page] result.data length:", result.data?.length);
+    setQueryHistory(prev => {
+      console.log("[Page] Adding to queryHistory, prev length:", prev.length);
+      return [result, ...prev];
+    });
     setHasData(true);
     setIsQueryPending(false);
     setActiveQueryId(result.id);
     setView("telemetry");
+    console.log("[Page] State updates dispatched");
   }, []);
 
   const handleAddDatabase = React.useCallback(async (db: {
@@ -195,6 +204,22 @@ export default function Home() {
     setView("telemetry");
   }, []);
 
+  const handleDeleteQuery = React.useCallback(async (id: string) => {
+    try {
+      await apiService.deleteHistory(id);
+      setQueryHistory((prev) => prev.filter((q) => q.id !== id));
+
+      // If we deleted the active query, clear the view
+      if (activeQueryId === id) {
+        setActiveQueryId(null);
+        setHasData(false);
+        setView("explorer");
+      }
+    } catch (error) {
+      console.error("Failed to delete query:", error);
+    }
+  }, [activeQueryId]);
+
   if (isLoading) {
     return (
       <div className="h-screen w-screen flex flex-col items-center justify-center bg-background font-mono">
@@ -232,7 +257,7 @@ export default function Home() {
   return (
     <main className="flex h-screen w-screen overflow-hidden bg-background text-foreground">
       {/* Collapsible Sidebar */}
-      <Sidebar 
+      <Sidebar
         connections={connectionsWithQueries}
         activeConnectionId={activeConnectionId}
         activeQueryId={activeQueryId}
@@ -240,18 +265,21 @@ export default function Home() {
         onSelectQuery={handleSelectQuery}
         onAddDatabase={handleAddDatabase}
         onDeleteConnection={handleDeleteConnection}
-        onNewQuery={handleNewQuery} 
+        onDeleteQuery={handleDeleteQuery}
+        onNewQuery={handleNewQuery}
       />
 
       {/* Main Content Area */}
       <div className="relative flex-1 flex flex-col min-w-0">
-        <DataStage 
-          hasData={hasData} 
+        <DataStage
+          hasData={hasData}
           activeConnectionName={activeConnection?.name}
           activeConnectionId={activeConnectionId}
           queryData={activeQuery?.data}
           queryStats={activeQuery?.stats}
           queryText={activeQuery?.text}
+          queryAnswer={activeQuery?.answer}
+          querySql={activeQuery?.sql}
           view={view}
         />
         

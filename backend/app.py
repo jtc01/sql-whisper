@@ -521,6 +521,12 @@ class MySQLEncoder(json.JSONEncoder):
             return float(obj)
         if isinstance(obj, (datetime, date)):
             return obj.isoformat()
+        if isinstance(obj, bytes):
+            # Try to decode as UTF-8, otherwise return hex representation
+            try:
+                return obj.decode('utf-8')
+            except UnicodeDecodeError:
+                return obj.hex()
         return super().default(obj)
     
 # -------------------------------------------------------
