@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef, useEffect } from "react";
 import { apiService } from "@/lib/api-service";
-import { type QueryResult } from "@/app/page";
+import { type QueryResult, type ConversationMessage } from "@/app/page";
 
 export type RecordingStatus = "idle" | "starting" | "recording" | "stopping" | "processing" | "error";
 
@@ -26,9 +26,10 @@ interface UseMicrophoneOptions {
   onSuccess?: (result: QueryResult) => void;
   onError?: () => void;
   activeConnectionId?: string;
+  conversationHistory?: ConversationMessage[];
 }
 
-export function useMicrophone({ onStart, onSuccess, onError, activeConnectionId }: UseMicrophoneOptions) {
+export function useMicrophone({ onStart, onSuccess, onError, activeConnectionId, conversationHistory = [] }: UseMicrophoneOptions) {
   const [status, setStatus] = useState<RecordingStatus>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -54,6 +55,12 @@ export function useMicrophone({ onStart, onSuccess, onError, activeConnectionId 
     }
   }, []);
 
+  // Keep a ref to conversationHistory so it's accessible in the TRTC callback
+  const historyRef = useRef<ConversationMessage[]>(conversationHistory);
+  useEffect(() => {
+    historyRef.current = conversationHistory;
+  }, [conversationHistory]);
+
   const handleAsk = useCallback(async (question: string) => {
     if (!activeConnectionId || !question.trim()) return;
 
@@ -61,7 +68,11 @@ export function useMicrophone({ onStart, onSuccess, onError, activeConnectionId 
     onStart?.();
 
     try {
-      const response = await apiService.ask(activeConnectionId, question);
+      // Use current conversation history for follow-up context
+      const history = historyRef.current;
+      const isFollowUp = history.length > 0;
+
+      const response = await apiService.ask(activeConnectionId, question, history);
       // Transform backend response to match QueryResult interface
       const result: QueryResult = {
         id: `query_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
@@ -73,6 +84,7 @@ export function useMicrophone({ onStart, onSuccess, onError, activeConnectionId 
         stats: response.stats || [],
         chartSpec: response.chartSpec,
         messages: response.messages || [],
+        isFollowUp, // Flag to indicate this was a follow-up query
       };
       onSuccess?.(result);
       setStatus("idle");
