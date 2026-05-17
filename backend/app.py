@@ -960,7 +960,42 @@ def get_sample(table_name):
             conn.close()
 
 # -------------------------------------------------------
-# TRTC voice integration
+# Robust Transcription Engine
+# -------------------------------------------------------
+import speech_recognition as sr
+import io
+
+@app.route("/transcribe", methods=["POST"])
+def transcribe():
+    """
+    Handles raw audio uploads from the frontend and converts
+    them to text using the SpeechRecognition engine.
+    """
+    if 'audio' not in request.files:
+        return jsonify({"error": "No audio file provided"}), 400
+
+    audio_file = request.files['audio']
+    recognizer = sr.Recognizer()
+
+    try:
+        # Load audio data from the uploaded file
+        with sr.AudioFile(audio_file) as source:
+            audio_data = recognizer.record(source)
+
+        # Recognize speech using Google's free web service
+        # For production, swap for a more robust provider like Whisper
+        text = recognizer.recognize_google(audio_data)
+
+        return jsonify({"text": text})
+    except sr.UnknownValueError:
+        return jsonify({"error": "Speech was unintelligible"}), 422
+    except sr.RequestError as e:
+        return jsonify({"error": f"Recognition service failure: {e}"}), 503
+    except Exception as e:
+        return jsonify({"error": f"Transcription error: {str(e)}"}), 500
+
+# -------------------------------------------------------
+# TRTC voice integration (Legacy/Placeholder)
 # -------------------------------------------------------
 import TLSSigAPIv2
 from tencentcloud.common import credential
