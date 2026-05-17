@@ -18,80 +18,108 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { type Connection } from "@/app/page";
 import { motion, AnimatePresence } from "framer-motion";
+import { cn } from "@/lib/utils";
 
 const databaseSchema = z.object({
   name: z.string().min(2, "Name must be at least 2 characters"),
   host: z.string().min(1, "Host is required"),
   port: z.string().min(1, "Port is required"),
-  user: z.string().min(1, "Username is required"),
+  username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
-  database: z.string().min(1, "Database name is required"),
+  db_name: z.string().min(1, "Database name is required"),
+  db_type: z.enum(["mysql", "tdsql"]),
 });
 
 type DatabaseFormValues = z.infer<typeof databaseSchema>;
 
 interface AddDatabaseDialogProps {
   isCollapsed?: boolean;
-  onAddDatabase?: (db: Omit<Connection, "id" | "status" | "queries">) => void;
+  onAddDatabase?: (db: {
+    name: string;
+    host: string;
+    port: number;
+    db_name: string;
+    username: string;
+    password?: string;
+    db_type: string;
+  }) => Promise<void>;
 }
 
 export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDialogProps) {
   const [open, setOpen] = React.useState(false);
   const [isTesting, setIsTesting] = React.useState(false);
   const [testResult, setTestResult] = React.useState<"success" | "error" | null>(null);
+  const [errorMessage, setErrorMessage] = React.useState<string | null>(null);
 
   const {
     register,
     handleSubmit,
     formState: { errors },
     reset,
+    watch,
+    setValue,
   } = useForm<DatabaseFormValues>({
     resolver: zodResolver(databaseSchema),
     defaultValues: {
       name: "",
       host: "",
-      port: "5432",
-      user: "",
+      port: "3306",
+      username: "",
       password: "",
-      database: "",
+      db_name: "",
+      db_type: "mysql",
     },
   });
+
+  const activeDbType = watch("db_type");
 
   const onSubmit = async (data: DatabaseFormValues) => {
     setIsTesting(true);
     setTestResult(null);
+    setErrorMessage(null);
     
-    // Simulate API call
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    
-    onAddDatabase?.({
-      ...data,
-      port: parseInt(data.port, 10),
-      type: "MySQL", // Default for now
-    });
-    
-    setIsTesting(false);
-    setTestResult("success");
-    
-    setTimeout(() => {
-      setOpen(false);
-      reset();
-      setTestResult(null);
-    }, 1000);
+    try {
+      await onAddDatabase?.({
+        ...data,
+        port: parseInt(data.port, 10),
+      });
+      setTestResult("success");
+      setTimeout(() => {
+        setOpen(false);
+        reset();
+        setTestResult(null);
+      }, 1000);
+    } catch (error) {
+      setTestResult("error");
+      const errMessage = error instanceof Error ? error.message : "Failed to establish uplink.";
+      setErrorMessage(errMessage);
+    } finally {
+      setIsTesting(false);
+    }
   };
 
   const handleTestConnection = async () => {
     setIsTesting(true);
     setTestResult(null);
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    setErrorMessage(null);
+    
+    // In a real scenario, we'd need to save first to get an ID, 
+    // or use a dedicated "dry-run" endpoint.
+    // For the demo, we'll simulate the validation success.
+    await new Promise((resolve) => setTimeout(resolve, 1500));
     setIsTesting(false);
     setTestResult("success");
   };
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={(val) => {
+      setOpen(val);
+      if (!val) {
+        setTestResult(null);
+        setErrorMessage(null);
+      }
+    }}>
       <DialogTrigger asChild>
         {isCollapsed ? (
           <Button 
@@ -169,7 +197,7 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
                       <Label htmlFor="port" className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Port</Label>
                       <Input
                         id="port"
-                        placeholder="5432"
+                        placeholder="3306"
                         className="bg-background border-border font-mono text-xs h-9 text-center"
                         {...register("port")}
                       />
@@ -177,13 +205,34 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
                   </div>
                   
                   <div className="space-y-1.5">
-                    <Label htmlFor="database" className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Initial Schema</Label>
+                    <Label htmlFor="db_name" className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Initial Schema</Label>
                     <Input
-                      id="database"
+                      id="db_name"
                       placeholder="main_registry"
                       className="bg-background border-border font-mono text-xs h-9"
-                      {...register("database")}
+                      {...register("db_name")}
                     />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Engine Type</Label>
+                    <div className="flex gap-2">
+                      {(["mysql", "tdsql"] as const).map((t) => (
+                        <button
+                          key={t}
+                          type="button"
+                          onClick={() => setValue("db_type", t)}
+                          className={cn(
+                            "flex-1 h-8 rounded border font-mono text-[10px] uppercase transition-all",
+                            activeDbType === t 
+                              ? "bg-primary text-primary-foreground border-primary" 
+                              : "bg-muted/50 text-muted-foreground border-border hover:bg-muted"
+                          )}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
               </TabsContent>
@@ -191,16 +240,16 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
               <TabsContent value="auth" className="space-y-4 mt-0 outline-none">
                 <div className="grid gap-3">
                   <div className="space-y-1.5">
-                    <Label htmlFor="user" className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Entity ID</Label>
+                    <Label htmlFor="username" className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Username</Label>
                     <Input
-                      id="user"
+                      id="username"
                       placeholder="admin_sys"
                       className="bg-background border-border font-mono text-xs h-9"
-                      {...register("user")}
+                      {...register("username")}
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="password" className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Access Token</Label>
+                    <Label htmlFor="password" className="text-[10px] font-mono uppercase font-bold text-muted-foreground">Password</Label>
                     <Input
                       id="password"
                       type="password"
@@ -226,7 +275,7 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
 
           <div className="bg-muted px-6 py-4 flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 max-w-[200px]">
                 {testResult === "success" && (
                   <div className="flex items-center gap-1.5 text-emerald-600 animate-in fade-in slide-in-from-left-2">
                     <Globe className="w-3 h-3" />
@@ -234,7 +283,14 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
                   </div>
                 )}
                 {testResult === "error" && (
-                  <span className="text-[8px] font-mono font-bold uppercase tracking-wider text-destructive">Signal Lost</span>
+                  <div className="flex flex-col animate-in fade-in slide-in-from-left-2">
+                    <span className="text-[8px] font-mono font-bold uppercase tracking-wider text-destructive">Signal Lost</span>
+                    {errorMessage && (
+                      <span className="text-[8px] font-mono text-destructive/70 line-clamp-2 leading-tight" title={errorMessage}>
+                        {errorMessage}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
               <Button 
@@ -243,7 +299,7 @@ export function AddDatabaseDialog({ isCollapsed, onAddDatabase }: AddDatabaseDia
                 size="sm" 
                 onClick={handleTestConnection}
                 disabled={isTesting}
-                className="h-7 px-3 text-[9px] font-mono uppercase bg-background"
+                className="h-7 px-3 text-[9px] font-mono uppercase bg-background shrink-0"
               >
                 {isTesting ? <Loader2 className="w-3 h-3 animate-spin mr-2" /> : <Link2 className="w-3 h-3 mr-2 text-primary" />}
                 Validate Vector

@@ -26,7 +26,15 @@ interface SidebarProps {
   activeQueryId: string | null;
   onSelectConnection: (id: string) => void;
   onSelectQuery: (id: string) => void;
-  onAddDatabase: (db: Omit<Connection, "id" | "status">) => void;
+  onAddDatabase: (db: {
+    name: string;
+    host: string;
+    port: number;
+    db_name: string;
+    username: string;
+    password?: string;
+    db_type: string;
+  }) => Promise<void>;
   onDeleteConnection: (id: string) => void;
   onNewQuery?: () => void;
 }
@@ -47,7 +55,7 @@ export function Sidebar({
   return (
     <motion.div
       initial={false}
-      animate={{ width: isCollapsed ? 80 : 320 }}
+      animate={{ width: isCollapsed ? 80 : 400 }}
       transition={{ 
         type: "spring", 
         stiffness: 400, 
@@ -112,14 +120,14 @@ export function Sidebar({
             
             <div className="space-y-1">
               {connections.map((conn) => (
-                <div key={conn.id} className="relative group">
+                <div key={conn.id} className="relative group flex min-w-0 w-full">
                   <button
                     onClick={() => onSelectConnection(conn.id)}
                     className={cn(
-                      "w-full flex items-center gap-3 p-2 rounded-lg transition-all text-left",
+                      "w-full flex items-center gap-3 p-2.5 rounded-lg transition-all text-left min-w-0",
                       activeConnectionId === conn.id 
-                        ? "bg-primary/10 text-primary border border-primary/20" 
-                        : "text-muted-foreground hover:bg-accent border border-transparent",
+                        ? "bg-primary/10 text-primary border border-primary/20 pr-10" 
+                        : "text-muted-foreground hover:bg-accent border border-transparent pr-10",
                       isCollapsed && "justify-center px-0"
                     )}
                   >
@@ -130,15 +138,15 @@ export function Sidebar({
                       )}
                     </div>
                     {!isCollapsed && (
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[11px] font-mono font-bold truncate tracking-wider">{conn.name}</p>
-                        <p className="text-[9px] font-mono opacity-50 truncate uppercase tracking-tighter">{conn.type}{" // "}{conn.host}</p>
+                      <div className="flex-1 min-w-0 overflow-hidden">
+                        <p className="text-[11px] font-mono font-bold truncate tracking-wider leading-tight w-full">{conn.name}</p>
+                        <p className="text-[9px] font-mono opacity-50 truncate uppercase tracking-tighter mt-0.5 w-full">{conn.type}{" // "}{conn.host}</p>
                       </div>
                     )}
                   </button>
                   
                   {!isCollapsed && activeConnectionId === conn.id && (
-                    <div className="absolute right-1 top-1.5">
+                    <div className="absolute right-1.5 top-2.5">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button variant="ghost" size="icon" className="h-7 w-7 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -182,24 +190,24 @@ export function Sidebar({
                     key={query.id}
                     onClick={() => onSelectQuery(query.id)}
                     className={cn(
-                      "w-full text-left p-2.5 rounded-lg transition-all group border border-transparent",
+                      "w-full text-left p-2.5 rounded-lg transition-all group border border-transparent min-w-0",
                       activeQueryId === query.id 
                         ? "bg-accent text-foreground border-border" 
                         : "hover:bg-accent/50 text-muted-foreground",
                       isCollapsed && "justify-center px-0"
                     )}
                   >
-                    <div className="flex items-start gap-3">
+                    <div className="flex items-start gap-3 min-w-0 w-full overflow-hidden">
                       <MessageSquare className={cn(
                         "w-4 h-4 mt-0.5 shrink-0 transition-colors duration-200",
                         activeQueryId === query.id ? "text-primary" : "group-hover:text-primary"
                       )} />
                       {!isCollapsed && (
-                        <div className="flex-1 min-w-0">
-                          <span className="text-[11px] font-mono block truncate leading-tight uppercase font-bold tracking-tight mb-0.5">
+                        <div className="flex-1 min-w-0 overflow-hidden">
+                          <span className="text-[11px] font-mono block truncate leading-tight uppercase font-bold tracking-tight mb-0.5 w-full">
                             {query.text}
                           </span>
-                          <span className="text-[8px] font-mono opacity-50 uppercase tracking-widest">
+                          <span className="text-[8px] font-mono opacity-50 uppercase tracking-widest truncate block w-full">
                             {new Date(query.created_at).toLocaleTimeString([], { hour12: false })}
                           </span>
                         </div>

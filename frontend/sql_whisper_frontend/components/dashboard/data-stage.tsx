@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/table";
 import { Search, Database, Terminal } from "lucide-react";
 import { type StarshipTelemetry } from "@/app/page";
+import { apiService, type DBSchema } from "@/lib/api-service";
 
 const getAffiliationColor = (affiliation: string) => {
   switch (affiliation) {
@@ -26,17 +27,32 @@ const getAffiliationColor = (affiliation: string) => {
 export function DataStage({ 
   hasData = true, 
   activeConnectionName,
+  activeConnectionId,
   queryData = [],
   queryStats = [],
-  queryText
+  queryText,
+  view = "telemetry"
 }: { 
   hasData?: boolean;
   activeConnectionName?: string;
+  activeConnectionId?: string;
   queryData?: StarshipTelemetry[];
   queryStats?: { label: string; value: string; color?: string }[];
   queryText?: string;
+  view?: "telemetry" | "explorer";
 }) {
   const [dateTime, setDateTime] = React.useState<string>("");
+  const [schema, setSchema] = React.useState<DBSchema | null>(null);
+  const [activeTable, setActiveTable] = React.useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (view === "explorer" && activeConnectionId) {
+      apiService.getDatabaseSchema(activeConnectionId).then((data: DBSchema) => {
+        setSchema(data);
+        if (data.tables.length > 0) setActiveTable(data.tables[0].name);
+      });
+    }
+  }, [view, activeConnectionId]);
 
   React.useEffect(() => {
     const updateTime = () => {
@@ -59,6 +75,8 @@ export function DataStage({
     return () => clearInterval(interval);
   }, []);
 
+  const currentTableData = schema?.tables.find((t) => t.name === activeTable);
+
   return (
     <div className="flex-1 flex flex-col min-w-0 bg-background relative overflow-hidden">
       {/* Header */}
@@ -68,7 +86,7 @@ export function DataStage({
             {activeConnectionName || "Holonet Starship Registry"}
           </h1>
           <p className="text-[10px] text-muted-foreground font-mono uppercase tracking-widest opacity-70 leading-none">
-            {queryText || "Database Connected"}
+            {view === "explorer" ? `SCHEMA EXPLORER // ${activeTable || "STANDBY"}` : (queryText || "Database Connected")}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -82,7 +100,78 @@ export function DataStage({
       {/* Main Viewport */}
       <div className="flex-1 p-6 overflow-auto custom-scrollbar">
         <AnimatePresence mode="wait">
-          {hasData && queryData.length > 0 ? (
+          {view === "explorer" ? (
+            <motion.div 
+              key="explorer-view"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="flex gap-6 h-full"
+            >
+              {/* Table List */}
+              <div className="w-64 shrink-0 flex flex-col gap-2">
+                <h3 className="text-[10px] font-mono text-muted-foreground uppercase tracking-[0.2em] px-2 mb-2">Tables</h3>
+                {schema?.tables.map((t) => (
+                  <button
+                    key={t.name}
+                    onClick={() => setActiveTable(t.name)}
+                    className={cn(
+                      "w-full text-left p-3 rounded-lg border border-border bg-card/10 font-mono text-xs transition-all",
+                      activeTable === t.name 
+                        ? "bg-primary/10 border-primary/20 text-primary" 
+                        : "bg-muted/30 border-transparent text-muted-foreground hover:bg-muted"
+                    )}
+                  >
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold">{t.name.toUpperCase()}</span>
+                      <span className="opacity-40">{t.rowCount}</span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+
+              {/* Data View */}
+              <div className="flex-1 min-w-0 flex flex-col gap-6">
+                {currentTableData ? (
+                  <>
+                    <div className="rounded-lg border border-border bg-card/10 overflow-hidden shadow-sm">
+                      <Table>
+                        <TableHeader className="bg-muted/30">
+                          <TableRow className="border-border hover:bg-transparent">
+                            {currentTableData.columns.map((col: string) => (
+                              <TableHead key={col} className="text-muted-foreground font-medium py-4 text-[11px] uppercase tracking-wider px-6">
+                                {col}
+                              </TableHead>
+                            ))}
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {currentTableData.sample.map((row, idx) => (
+                            <TableRow key={idx} className="border-border hover:bg-muted/40">
+                              {currentTableData.columns.map((col) => (
+                                <TableCell key={col} className="font-mono text-xs py-3.5 px-6">
+                                  {row[col]}
+                                </TableCell>
+                              ))}
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <div className="p-4 rounded-lg border border-dashed border-border bg-accent/5">
+                      <p className="text-[10px] font-mono text-muted-foreground uppercase opacity-60">
+                        Displaying first {currentTableData.sample.length} of {currentTableData.rowCount} records for local vector analysis.
+                      </p>
+                    </div>
+                  </>
+                ) : (
+                  <div className="h-full flex items-center justify-center text-center p-12 opacity-50">
+                    <p className="font-mono text-xs uppercase tracking-widest">Select a table to initialize telemetry</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          ) : hasData && queryData.length > 0 ? (
             <motion.div 
               key="data-view"
               initial={{ opacity: 0, y: 10 }}

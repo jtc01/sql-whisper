@@ -6,18 +6,60 @@ import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 
-interface VoiceControlsProps {
-  onQueryComplete?: () => void;
-  showKeyboard?: boolean;
+import { apiService } from "@/lib/api-service";
+import { type QueryResult } from "@/app/page";
+
+interface TRTCClient {
+  on: (event: string, callback: (event: { data: ArrayBuffer }) => void) => void;
+  enterRoom: (options: { sdkAppId: number; userId: string; userSig: string; roomId: number }) => Promise<void>;
+  startLocalAudio: () => Promise<void>;
+  stopLocalAudio: () => Promise<void>;
+  exitRoom: () => Promise<void>;
 }
 
-export function VoiceControls({ onQueryComplete, showKeyboard = false }: VoiceControlsProps) {
+interface TRTCModule {
+  create: () => TRTCClient;
+  EVENT: {
+    CUSTOM_MESSAGE: string;
+  };
+}
+
+interface VoiceControlsProps {
+  onQueryComplete?: (result: QueryResult) => void;
+  showKeyboard?: boolean;
+  activeConnectionId?: string;
+}
+
+export function VoiceControls({ onQueryComplete, showKeyboard = false, activeConnectionId }: VoiceControlsProps) {
   const [isListening, setIsListening] = React.useState(false);
   const [isProcessing, setIsProcessing] = React.useState(false);
   const [mode, setMode] = React.useState<"voice" | "text">("voice");
   const [textQuery, setTextQuery] = React.useState("");
   
+  const [trtcModule, setTrtcModule] = React.useState<TRTCModule | null>(null);
+  const trtcRef = React.useRef<TRTCClient | null>(null);
+  const taskIdRef = React.useRef<string | null>(null);
+
+  // Dynamic import of TRTC to prevent SSR errors (location is not defined)
+  React.useEffect(() => {
+    if (typeof window !== "undefined") {
+      const loadTRTC = async () => {
+        console.log("[Uplink] Fetching TRTC SDK package...");
+        try {
+          const sdk = await import("trtc-sdk-v5");
+          setTrtcModule(() => sdk.default as unknown as TRTCModule);
+          console.log("[Uplink] TRTC SDK Package Online.");
+        } catch (err) {
+          console.error("[Uplink] TRTC SDK Payload Failure:", err);
+        }
+      };
+      loadTRTC();
+    }
+  }, []);
+  
   const activeInteractionRef = React.useRef<"keyboard" | "mouse" | null>(null);
+  const isInitializingRef = React.useRef(false);
+  const isStoppingRef = React.useRef(false);
   const isProcessingRef = React.useRef(false);
   const modeRef = React.useRef(mode);
 
@@ -26,35 +68,126 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false }: VoiceCo
     modeRef.current = mode;
   }, [isProcessing, mode]);
 
-  const startListening = React.useCallback((source: "keyboard" | "mouse") => {
-    if (isProcessingRef.current || activeInteractionRef.current) return;
-    activeInteractionRef.current = source;
-    setIsListening(true);
+  const handleAsk = React.useCallback(async (question: string) => {
+    if (!activeConnectionId) return;
+    setIsProcessing(true);
+    try {
+      const result = await apiService.ask(activeConnectionId, question);
+      onQueryComplete?.(result);
+    } catch (error) {
+      console.error("Vector Query Failed:", error);
+    } finally {
+      setIsProcessing(false);
+      setTextQuery("");
+      setMode("voice");
+    }
+  }, [activeConnectionId, onQueryComplete]);
+
+  // Use a ref for handleAsk to avoid stale closures in TRTC events
+  const handleAskRef = React.useRef(handleAsk);
+  React.useEffect(() => {
+    handleAskRef.current = handleAsk;
+  }, [handleAsk]);
+
+  const stopListening = React.useCallback(async (source: "keyboard" | "mouse") => {
+    if (activeInteractionRef.current !== source || isStoppingRef.current) return;
+    
+    isStoppingRef.current = true;
+    console.log(`[Uplink] Terminating session from ${source}...`);
+    try {
+      if (taskIdRef.current) {
+        await apiService.stopTranscription(taskIdRef.current);
+        taskIdRef.current = null;
+      }
+      if (trtcRef.current) {
+        await trtcRef.current.stopLocalAudio();
+        await trtcRef.current.exitRoom();
+      }
+    } catch (error) {
+      console.error("[Uplink] Termination Error:", error);
+    } finally {
+      activeInteractionRef.current = null;
+      isStoppingRef.current = false;
+      setIsListening(false);
+    }
   }, []);
 
-  const stopListening = React.useCallback((source: "keyboard" | "mouse") => {
-    if (activeInteractionRef.current !== source) return;
-    activeInteractionRef.current = null;
-    setIsListening(false);
-    setIsProcessing(true);
+  const startListening = React.useCallback(async (source: "keyboard" | "mouse") => {
+    console.log(`[Uplink] Activation attempt from ${source}. ConnID: ${activeConnectionId}`);
     
-    setTimeout(() => {
-      setIsProcessing(false);
-      onQueryComplete?.();
-    }, 2000);
-  }, [onQueryComplete]);
+    if (isProcessingRef.current || activeInteractionRef.current || isInitializingRef.current) {
+      console.warn("[Uplink] Activation blocked: busy or already initializing.");
+      return;
+    }
+    
+    if (!activeConnectionId) {
+      console.error("[Uplink] Activation failed: No active connection ID.");
+      return;
+    }
+    
+    isInitializingRef.current = true;
+    try {
+      activeInteractionRef.current = source;
+      setIsListening(true);
+
+      // TRTC Flow
+      if (!trtcModule) {
+        throw new Error("TRTC SDK not initialized");
+      }
+
+      if (!trtcRef.current) {
+        console.log("[Uplink] Initializing TRTC Instance...");
+        trtcRef.current = trtcModule.create();
+        trtcRef.current.on(trtcModule.EVENT.CUSTOM_MESSAGE, (event: { data: ArrayBuffer }) => {
+          const decoded = new TextDecoder().decode(event.data);
+          const msg = JSON.parse(decoded);
+          if (msg.type === 10000 && msg.payload?.end === true) {
+            const transcript = msg.payload.text;
+            console.log(`[Uplink] Transcript Received: "${transcript}"`);
+            handleAskRef.current(transcript);
+          }
+        });
+      }
+
+      console.log("[Uplink] Requesting UserSig...");
+      const { user_sig, sdk_app_id, user_id } = await apiService.getTRTCUserSig();
+      const roomId = Math.floor(Math.random() * 1000000);
+      
+      console.log(`[Uplink] Entering Room ${roomId}...`);
+      await trtcRef.current.enterRoom({ sdkAppId: sdk_app_id, userId: user_id, userSig: user_sig, roomId });
+      
+      console.log("[Uplink] Opening Local Audio...");
+      await trtcRef.current.startLocalAudio();
+      
+      console.log("[Uplink] Starting Remote Transcription...");
+      const { task_id } = await apiService.startTranscription(roomId);
+      taskIdRef.current = task_id;
+      console.log("[Uplink] Signal Stable.");
+
+    } catch (error) {
+      console.error("[Uplink] Hardware/Network Interference:", error);
+      // Clean up on failure
+      const activeSource = activeInteractionRef.current;
+      if (activeSource) {
+        if (taskIdRef.current) {
+          apiService.stopTranscription(taskIdRef.current).catch(() => {});
+          taskIdRef.current = null;
+        }
+        if (trtcRef.current) {
+          trtcRef.current.exitRoom().catch(() => {});
+        }
+        activeInteractionRef.current = null;
+        setIsListening(false);
+      }
+    } finally {
+      isInitializingRef.current = false;
+    }
+  }, [activeConnectionId, trtcModule]);
 
   const handleTextSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!textQuery.trim() || isProcessing) return;
-    
-    setIsProcessing(true);
-    setTimeout(() => {
-      setIsProcessing(false);
-      setTextQuery("");
-      setMode("voice");
-      onQueryComplete?.();
-    }, 1500);
+    handleAsk(textQuery);
   };
 
   React.useEffect(() => {
@@ -69,7 +202,9 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false }: VoiceCo
 
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === "Space") {
-        if (modeRef.current === "voice") stopListening("keyboard");
+        if (modeRef.current === "voice") {
+          stopListening("keyboard");
+        }
       }
     };
 
@@ -154,12 +289,16 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false }: VoiceCo
                   <motion.button
                     layout
                     key="kb"
+                    disabled={!activeConnectionId}
                     initial={{ opacity: 0, scale: 0, x: 20 }}
                     animate={{ opacity: 1, scale: 1, x: 0 }}
                     exit={{ opacity: 0, scale: 0, x: 40 }}
                     transition={spring}
                     onClick={() => setMode("text")}
-                    className="w-20 h-20 rounded-full border border-border bg-card/50 flex items-center justify-center text-muted-foreground hover:text-foreground shrink-0 !transition-none"
+                    className={cn(
+                      "w-20 h-20 rounded-full border border-border bg-card/30 backdrop-blur-xl flex items-center justify-center text-muted-foreground hover:text-foreground shadow-lg shrink-0 !transition-none",
+                      !activeConnectionId && "opacity-20 cursor-not-allowed"
+                    )}
                   >
                     <Keyboard className="w-8 h-8" />
                   </motion.button>
@@ -171,11 +310,12 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false }: VoiceCo
                 onMouseDown={() => startListening("mouse")}
                 onMouseUp={() => stopListening("mouse")}
                 onMouseLeave={() => stopListening("mouse")}
-                disabled={isProcessing}
+                disabled={isProcessing || !activeConnectionId}
                 transition={spring}
                 className={cn(
                   "relative flex items-center justify-center w-20 h-20 rounded-full shrink-0 overflow-hidden !transition-none",
-                  isListening ? "bg-rose-600 shadow-inner" : "bg-primary"
+                  isListening ? "bg-rose-600 shadow-inner" : "bg-primary",
+                  !activeConnectionId && "opacity-20 cursor-not-allowed grayscale"
                 )}
               >
                 <div className="relative z-20">
