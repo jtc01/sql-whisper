@@ -257,8 +257,8 @@ Tracks targeted:
 ## Team
 
 - **Matthew Moyer** — Backend, Tencent integration, AI agent
-- **[Frontend dev]** — Frontend, UX, Atomic Command Surface
-- **[LLM dev]** — Agent design, prompt engineering
+- **Zach Malinowski** — Frontend, UX, Atomic Command Surface
+- **Joshua Cao** — Agent design, prompt engineering
 
 ---
 
