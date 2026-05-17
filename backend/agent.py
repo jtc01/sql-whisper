@@ -144,15 +144,32 @@ TOOLS = [
             "properties": {
                 "chart_type": {
                     "type": "string",
-                    "enum": ["bar", "line", "pie", "scatter"],
+                    "enum": ["bar", "line", "scatter", "area", "pie", "histogram", "box"],
                     "description": "The type of chart to render."
                 },
-                "x": {"type": "string", "description": "Column name for the x-axis."},
-                "y": {"type": "string", "description": "Column name for the y-axis."},
-                "color": {"type": "string", "description": "Optional column to group/color by."},
+                "x": {
+                    "type": "string",
+                    "description": "Column for the x-axis. Used by: bar, line, scatter, area, histogram, box."
+                },
+                "y": {
+                    "type": "string",
+                    "description": "Column for the y-axis. Used by: bar, line, scatter, area, box."
+                },
+                "names": {
+                    "type": "string",
+                    "description": "Column for slice labels. Used by: pie only."
+                },
+                "values": {
+                    "type": "string",
+                    "description": "Column for slice sizes. Used by: pie only."
+                },
+                "color": {
+                    "type": "string",
+                    "description": "Optional column to group or color by. Used by: bar, line, scatter, area."
+                },
                 "title": {"type": "string", "description": "Chart title."}
             },
-            "required": ["chart_type", "x", "y", "title"]
+            "required": ["chart_type", "title"]
         }
     }
 ]
