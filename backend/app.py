@@ -192,6 +192,80 @@ def save_query_history(
         print(f"WARN: failed to save history: {e}")
         return None
 
+# -------------------------------------------------------
+# Multi-turn conversation storage (Redis-backed)
+# Stores the last N message pairs per connection_id so the
+# agent can follow up on prior questions
+# -------------------------------------------------------
+CONVERSATION_TTL = 600  # 10 minutes of conversation idle time
+MAX_HISTORY_TURNS = 4   # cap context to last 4 user+assistant pairs (8 messages)
+
+
+def _conversation_key(connection_id: str) -> str:
+    return f"conversation:{connection_id}"
+
+
+def get_conversation(connection_id: str) -> list:
+    """Returns the saved message history for this connection, or [] if none."""
+    if not redis_client:
+        return []
+    try:
+        raw = redis_client.get(_conversation_key(connection_id))
+        return json.loads(raw) if raw else []
+    except Exception as e:
+        print(f"WARN: conversation read failed: {e}")
+        return []
+
+
+def save_conversation(connection_id: str, messages: list) -> None:
+    if not redis_client:
+        return
+    try:
+        # DEBUG: log what we're working with
+        print(f"DEBUG save_conversation: {len(messages)} messages")
+        for i, msg in enumerate(messages):
+            content = msg.get("content")
+            print(f"  msg[{i}] role={msg.get('role')} content_type={type(content).__name__}")
+            if isinstance(content, list):
+                for j, block in enumerate(content):
+                    print(f"    block[{j}] type={type(block).__name__} has_model_dump={hasattr(block, 'model_dump')}")
+
+        serializable = []
+        for msg in messages:
+            content = msg.get("content")
+            if isinstance(content, list):
+                new_content = []
+                for block in content:
+                    if hasattr(block, "model_dump"):
+                        new_content.append(block.model_dump())
+                    elif isinstance(block, dict):
+                        new_content.append(block)
+                    else:
+                        new_content.append({"type": "text", "text": str(block)})
+                serializable.append({"role": msg["role"], "content": new_content})
+            else:
+                serializable.append({"role": msg["role"], "content": content})
+
+        trimmed = serializable[-(2 * MAX_HISTORY_TURNS):]
+        redis_client.setex(
+            _conversation_key(connection_id),
+            CONVERSATION_TTL,
+            json.dumps(trimmed)
+        )
+        print(f"DEBUG save_conversation: SUCCESS, saved {len(trimmed)} messages")
+    except Exception as e:
+        print(f"WARN: conversation save failed: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def clear_conversation(connection_id: str) -> None:
+    if not redis_client:
+        return
+    try:
+        redis_client.delete(_conversation_key(connection_id))
+    except Exception as e:
+        print(f"WARN: conversation clear failed: {e}")
 
 # -------------------------------------------------------
 # Step 2a: Query INFORMATION_SCHEMA on the user's database
@@ -1360,37 +1434,37 @@ def generate_summary(question: str) -> str:
 @app.route("/ask", methods=["POST"])
 def ask():
     """
-    Natural-language question → SQL + results + stats.
-    Caches results in Redis for 10 minutes — repeat questions return instantly.
+    Natural-language question with multi-turn conversation memory.
+    Caches single-turn results. Follow-ups always re-run.
     """
     connection_id = request.headers.get("X-Connection-Id")
     body = request.get_json() or {}
     question = (body.get("question") or "").strip()
+    reset_conversation = body.get("reset", False)
 
     if not connection_id:
         return jsonify({"error": "Missing X-Connection-Id header"}), 400
     if not question:
         return jsonify({"error": "Missing question field"}), 400
 
-    # Check Redis for a cached result
-    cache_key = f"ask:{connection_id}:{question.lower()}"
-    if redis_client:
-        try:
-            cached_raw = redis_client.get(cache_key)
-            if cached_raw:
-                response = json.loads(cached_raw)
-                response["cached"] = True
-                return jsonify(response)
-        except Exception as e:
-            print(f"WARN: ask cache read failed: {e}")
+    # Reset conversation if requested
+    if reset_conversation:
+        clear_conversation(connection_id)
+
+    # Load prior conversation (may be empty)
+    prior_history = get_conversation(connection_id)
+    is_followup = len(prior_history) > 0
 
     try:
-        # Run the agent
+        # Run the agent with prior conversation context
         final_text, messages = run_agent(
             user_message=question,
             connection_id=connection_id,
-            history=[],
+            history=prior_history,
         )
+
+        # Persist the updated conversation
+        save_conversation(connection_id, messages)
 
         sql, rows = extract_sql_and_rows(messages)
         stats = generate_stats(question, sql, rows)
@@ -1410,24 +1484,23 @@ def ask():
             "data": rows,
             "stats": stats,
             "cached": False,
+            "is_followup": is_followup,
         }
-
-        # Cache the result for 10 minutes
-        if redis_client:
-            try:
-                redis_client.setex(
-                    cache_key,
-                    600,
-                    json.dumps(result, cls=MySQLEncoder)
-                )
-            except Exception as e:
-                print(f"WARN: ask cache write failed: {e}")
 
         return jsonify(result)
     except Exception as e:
         print(f"ERROR in /ask: {e}")
         return jsonify({"error": "Failed to process question", "detail": str(e)}), 500
-    
+
+@app.route("/conversation/reset", methods=["POST"])
+def reset_conversation_endpoint():
+    """Clear the conversation history for a connection."""
+    connection_id = request.headers.get("X-Connection-Id")
+    if not connection_id:
+        return jsonify({"error": "Missing X-Connection-Id header"}), 400
+    clear_conversation(connection_id)
+    return jsonify({"ok": True, "cleared": True})
+
 # -------------------------------------------------------
 # PUT /connections/<connection_id>
 # Updates an existing connection's properties.
