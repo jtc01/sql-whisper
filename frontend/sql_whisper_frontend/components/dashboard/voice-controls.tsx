@@ -152,15 +152,15 @@ export function VoiceControls({ onQueryComplete, showKeyboard = false, activeCon
       console.log("[Uplink] Requesting UserSig...");
       const { user_sig, sdk_app_id, user_id } = await apiService.getTRTCUserSig();
       const roomId = Math.floor(Math.random() * 1000000);
-      
+
       console.log(`[Uplink] Entering Room ${roomId}...`);
-      await trtcRef.current.enterRoom({ sdkAppId: sdk_app_id, userId: user_id, userSig: user_sig, roomId });
-      
+      await trtcRef.current.enterRoom({ sdkAppId: Number(sdk_app_id), userId: user_id, userSig: user_sig, roomId });
+
       console.log("[Uplink] Opening Local Audio...");
       await trtcRef.current.startLocalAudio();
-      
+
       console.log("[Uplink] Starting Remote Transcription...");
-      const { task_id } = await apiService.startTranscription(roomId);
+      const { task_id } = await apiService.startTranscription(String(roomId));
       taskIdRef.current = task_id;
       console.log("[Uplink] Signal Stable.");
 
