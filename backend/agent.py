@@ -235,6 +235,37 @@ def execute_tool(tool_name: str, tool_input: dict, connection_id: str) -> str:
                 json={"sql": tool_input["sql"]},
                 timeout=15        # slightly longer — query may take a moment
             )
+            # ── Error feedback loop ──────────────────────────────────────────
+            # On a query failure, return a structured error message that tells
+            # the agent exactly what went wrong and instructs it to fix and
+            # retry. The agent receives this as a tool_result and will
+            # naturally rewrite the SQL in its next turn.
+            #
+            # We handle two cases separately because they need different guidance:
+            #   422 ProgrammingError — bad column/table name, fixable by the agent
+            #   503 OperationalError — DB connection issue, not fixable by the agent
+            # ────────────────────────────────────────────────────────────────
+            if response.status_code == 422:
+                body = response.json()
+                detail = body.get("detail", body.get("error", "Unknown SQL error"))
+                return json.dumps({
+                    "error": "query_failed",
+                    "message": (
+                        f"The query failed with this error: {detail}. "
+                        "This is likely a wrong column or table name. "
+                        "Check the schema carefully and rewrite the SQL with the correct names."
+                    )
+                })
+
+            if not response.ok:
+                body = response.json()
+                detail = body.get("detail", body.get("error", "Unknown error"))
+                return json.dumps({
+                    "error": "query_failed",
+                    "message": f"The query failed with this error: {detail}."
+                })
+
+            return json.dumps(response.json())
         
         elif tool_name == "get_sample":
             response = requests.get(
